@@ -1,0 +1,14 @@
+{
+  "version": "1.0.1-test",
+  "created": "2025-06-20T10:00:00Z",
+  "target": "dev-test",
+  "files": [
+    {
+      "filename": "bundle.raucb",
+      "size": 12345678,
+      "sha256": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      "url": "http://localhost:8080/bundle.raucb"
+    }
+  ]
+}
+

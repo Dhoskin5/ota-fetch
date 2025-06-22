@@ -1,0 +1,27 @@
+# Build artifacts
+/build/
+/CMakeFiles/
+/CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Test output
+/test/var/lib/ota_fetch/inbox/*
+/test/var/lib/ota_fetch/current/*
+!/test/var/lib/ota_fetch/inbox/.gitkeep
+!/test/var/lib/ota_fetch/current/.gitkeep
+/test/var/log*
+
+# Editor junk
+*.swp
+*.swo
+*.bak
+*~
+
+#Format Link
+.clang.format
+
+# Mac/Linux/Windows junk
+.DS_Store
+Thumbs.db
+
