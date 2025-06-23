@@ -4,13 +4,13 @@
 #include <stdbool.h>
 
 typedef struct {
-    char *version;
-    char *created;
-    char *target;
-    char *filename;
-    char *sha256;
-    char *url;
-    long size;
+	char *version;
+	char *created;
+	char *target;
+	char *filename;
+	char *sha256;
+	char *url;
+	long size;
 } manifest_t;
 
 manifest_t *manifest_load(const char *path);

@@ -4,13 +4,12 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 OTA_FETCH_BIN="$SCRIPT_DIR/../build/ota-fetch"
 CONFIG_PATH="$SCRIPT_DIR/etc/ota_fetch/ota_fetch.conf"
-INBOX_PATH="test/var/lib/ota_fetch/inbox/manifest.json"
+INBOX_PATH="$SCRIPT_DIR/var/lib/ota_fetch/inbox/manifest.json"
 SERVER_ROOT="$SCRIPT_DIR/server"
 PORT=8080
 
 echo "Starting local HTTP test server on port $PORT"
-cd "$SERVER_ROOT"
-python3 -m http.server $PORT > /dev/null 2>&1 &
+python3 -m http.server $PORT --directory "$SERVER_ROOT" > /dev/null 2>&1 &
 SERVER_PID=$!
 
 # Give server time to start

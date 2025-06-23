@@ -1,4 +1,5 @@
 #include "ota_fetch.h"
+#include "manifest.h"
 #include <curl/curl.h>
 #include <errno.h>
 #include <stdio.h>
@@ -84,12 +85,12 @@ static int perform_fetch(const struct ota_config *cfg) {
 	curl_easy_cleanup(curl);
 
 	// Ensure inbox dir exists
-	mkdir_p(cfg->inbox_dir, 0755);
+	mkdir_p(cfg->inbox_manfiest_dir, 0755);
 
 	// Write manifest file
 	char manifest_path[512];
 	snprintf(manifest_path, sizeof(manifest_path), "%s/manifest.json",
-		 cfg->inbox_dir);
+		 cfg->inbox_manfiest_dir);
 
 	FILE *fp = fopen(manifest_path, "w");
 	if (!fp) {
@@ -104,15 +105,40 @@ static int perform_fetch(const struct ota_config *cfg) {
 
 	printf("Manifest saved to: %s\n", manifest_path);
 
-
-
-
-
-
-
-
-	
 	return 0;
+}
+
+/* ------------------------------------------------------------------------ */
+static int perform_compare(const struct ota_config *cfg) {
+	char inbox_path[512], current_path[512];
+	snprintf(inbox_path, sizeof(inbox_path), "%s/manifest.json",
+		 cfg->inbox_manfiest_dir);
+	snprintf(current_path, sizeof(current_path), "%s/manifest.json",
+		 cfg->current_manifest_dir);
+
+	manifest_t *inbox = manifest_load(inbox_path);
+	if (!inbox) {
+		fprintf(stderr, "Failed to load inbox manifest\n");
+		return -1;
+	}
+
+	manifest_t *current = manifest_load(current_path);
+
+	int result = 0;
+	if (!current) {
+		printf("No current manifest found. Update required.\n");
+		result = 1;
+	} else if (!manifest_equal(current, inbox)) {
+		printf("Manifest differs. Update required.\n");
+		result = 1;
+	} else {
+		printf("Manifest matches. No update needed.\n");
+		result = 0;
+	}
+
+	manifest_free(inbox);
+	manifest_free(current);
+	return result;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -121,13 +147,28 @@ int ota_fetch_run(bool daemon_mode, const struct ota_config *cfg) {
 
 	do {
 		int rc = perform_fetch(cfg);
-		if (rc == 0)
-			attempt = 0;
-		else
-			attempt++;
+		if (rc == 0) {
+			int cmp = perform_compare(cfg);
 
-		if (!daemon_mode)
+			if (cmp < 0) {
+				fprintf(stderr, "Error comparing manifests\n");
+				return cmp;
+			} else if (cmp > 0) {
+				printf("Update available. Proceeding with "
+				       "update...\n");
+				// Here you would trigger the update process
+			} else {
+				printf("System is up to date.\n");
+			}
+
+			attempt = 0;
+		} else {
+			attempt++;
+		}
+
+		if (!daemon_mode) {
 			return rc;
+		}
 
 		sleep(FETCH_INTERVAL_SEC);
 	} while (daemon_mode && attempt < cfg->retry_attempts);
