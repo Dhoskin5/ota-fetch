@@ -22,7 +22,13 @@ jobs:
             libssl-dev \
             libcjson-dev \
             jq \
-            python3
+            python3 \
+            python3-pip
+
+      - name: Ensure pip and Python cryptography module
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install cryptography
 
       - name: Configure CMake
         run: cmake -B build -S .
@@ -30,7 +36,13 @@ jobs:
       - name: Build ota-fetch
         run: cmake --build build
 
+      - name: Make test scripts executable
+        run: chmod +x test/scripts/*.sh
+
+      - name: Generate key/pem/cert
+        working-directory: test/scripts
+        run: python3 gen_test_keys.py
+
       - name: Run HTTP fetch test
         working-directory: test/scripts
         run: ./run-fetch-test.sh
-
