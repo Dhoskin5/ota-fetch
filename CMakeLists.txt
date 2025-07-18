@@ -6,6 +6,7 @@ set(CMAKE_C_STANDARD 99)
 # Find GLib and GIO packages
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(CURL REQUIRED libcurl)
+pkg_check_modules(OPENSSL REQUIRED openssl)
 
 find_path(CJSON_INCLUDE_DIR cjson/cJSON.h)
 find_library(CJSON_LIBRARY cjson)
@@ -21,12 +22,15 @@ add_executable(ota-fetch
     src/config.c
     src/ini.c
     src/manifest.c
+    src/verify_libcrypto.c
+    src/hash.c
 )
 
 # Include directories
 target_include_directories(ota-fetch PRIVATE
     ${CURL_INCLUDE_DIRS}
     ${CJSON_INCLUDE_DIR}
+    ${OPENSSL_INCLUDE_DIRS}
 )
 
 # Compiler flags
@@ -41,5 +45,6 @@ target_compile_options(ota-fetch PRIVATE
 target_link_libraries(ota-fetch PRIVATE
     ${CURL_LIBRARIES}
     ${CJSON_LIBRARY}
+    ${OPENSSL_LIBRARIES}
 )
 

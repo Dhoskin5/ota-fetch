@@ -6,6 +6,7 @@
 typedef struct {
 	char *version;
 	char *created;
+	char *update_type;
 	char *target;
 	char *filename;
 	char *sha256;
@@ -15,7 +16,6 @@ typedef struct {
 
 manifest_t *manifest_load(const char *path);
 void manifest_free(manifest_t *manifest);
-bool manifest_equal(const manifest_t *a, const manifest_t *b);
 void manifest_print(const manifest_t *m);
 
 #endif // OTA_FETCH_MANIFEST_H

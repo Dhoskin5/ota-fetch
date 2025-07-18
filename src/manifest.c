@@ -39,6 +39,9 @@ manifest_t *manifest_load(const char *path) {
 	m->version = DUP(cJSON_GetObjectItem(root, "version")->valuestring);
 	m->created = DUP(cJSON_GetObjectItem(root, "created")->valuestring);
 	m->target = DUP(cJSON_GetObjectItem(root, "target")->valuestring);
+	m->update_type = DUP(cJSON_GetObjectItem(root, "update_type")->valuestring);
+
+	
 
 	cJSON *files = cJSON_GetObjectItem(root, "files");
 	if (files && cJSON_GetArraySize(files) > 0) {
@@ -62,17 +65,11 @@ void manifest_free(manifest_t *m) {
 	free(m->version);
 	free(m->created);
 	free(m->target);
+	free(m->update_type);
 	free(m->filename);
 	free(m->sha256);
 	free(m->url);
 	free(m);
-}
-
-/* ------------------------------------------------------------------------ */
-bool manifest_equal(const manifest_t *a, const manifest_t *b) {
-	if (!a || !b)
-		return false;
-	return strcmp(a->version, b->version) == 0;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -83,6 +80,7 @@ void manifest_print(const manifest_t *m) {
 	printf("  version:  %s\n", m->version);
 	printf("  created:  %s\n", m->created);
 	printf("  target:   %s\n", m->target);
+	printf("  type:	    %s\n", m->update_type);
 	printf("  file:     %s\n", m->filename);
 	printf("  url:      %s\n", m->url);
 	printf("  sha256:   %s\n", m->sha256);
