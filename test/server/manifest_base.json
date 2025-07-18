@@ -1,5 +1,5 @@
 {
-  "version": "9.9.9-test",
+  "version": "X.X.X-test",
   "created": "2025-06-20T10:00:00Z",
   "target": "dev-test",
   "update_type": "rauc_bundle_test",

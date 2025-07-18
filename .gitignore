@@ -6,11 +6,15 @@ cmake_install.cmake
 Makefile
 
 # Test output
+/test/private/*
 /test/var/lib/ota_fetch/inbox/*
 /test/var/lib/ota_fetch/current/*
+/test/server/*.sig
+/test/server/*.crt
+!/test/private/.gitkeep
 !/test/var/lib/ota_fetch/inbox/.gitkeep
 !/test/var/lib/ota_fetch/current/.gitkeep
-/test/var/log*
+/test/var/*.log*
 
 # Editor junk
 *.swp

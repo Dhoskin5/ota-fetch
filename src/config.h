@@ -13,8 +13,9 @@ struct ota_config {
 	int retry_attempts;
 
 	// System paths
-	char *inbox_manfiest_dir;
+	char *inbox_manifest_dir;
 	char *current_manifest_dir;
+	char *root_ca_path;
 	char *log_file;
 };
 

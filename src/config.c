@@ -25,10 +25,12 @@ int config_handler(void *user, const char *section, const char *name,
 		cfg->connect_timeout = atoi(value);
 	} else if (MATCH("network", "retry_attempts")) {
 		cfg->retry_attempts = atoi(value);
-	} else if (MATCH("system", "inbox_manfiest_dir")) {
-		cfg->inbox_manfiest_dir = DUP(value);
+	} else if (MATCH("system", "inbox_manifest_dir")) {
+		cfg->inbox_manifest_dir = DUP(value);
 	} else if (MATCH("system", "current_manifest_dir")) {
 		cfg->current_manifest_dir = DUP(value);
+	} else if (MATCH("system", "root_ca_path")) {
+		cfg->root_ca_path = DUP(value);
 	} else if (MATCH("system", "log_file")) {
 		cfg->log_file = DUP(value);
 	}
@@ -48,8 +50,9 @@ void config_free(struct ota_config *config) {
 	free(config->ca_cert);
 	free(config->client_cert);
 	free(config->client_key);
-	free(config->inbox_manfiest_dir);
+	free(config->inbox_manifest_dir);
 	free(config->current_manifest_dir);
+	free(config->root_ca_path);
 	free(config->log_file);
 }
 
@@ -62,7 +65,8 @@ void config_print(const struct ota_config *config) {
 	printf("client_key          = %s\n", config->client_key);
 	printf("connect_timeout     = %d\n", config->connect_timeout);
 	printf("retry_attempts      = %d\n", config->retry_attempts);
-	printf("inbox_manfiest_dir  = %s\n", config->inbox_manfiest_dir);
+	printf("inbox_manifest_dir  = %s\n", config->inbox_manifest_dir);
 	printf("current_manfiest_dir= %s\n", config->current_manifest_dir);
+	printf("root_ca_path	    = %s\n", config->root_ca_path);
 	printf("log_file            = %s\n", config->log_file);
 }
