@@ -121,14 +121,14 @@ static int fetch_manifest(const struct ota_config *cfg) {
 		 cfg->server_url);
 	snprintf(sig_url, sizeof(sig_url), "%s/manifest.json.sig",
 		 cfg->server_url);
-	snprintf(cert_url, sizeof(cert_url), "%s/manifest.crt",
+	snprintf(cert_url, sizeof(cert_url), "%s/signer.crt",
 		 cfg->server_url);
 
 	snprintf(manifest_path, sizeof(manifest_path), "%s/manifest.json",
 		 cfg->inbox_manifest_dir);
 	snprintf(sig_path, sizeof(sig_path), "%s/manifest.json.sig",
 		 cfg->inbox_manifest_dir);
-	snprintf(cert_path, sizeof(cert_path), "%s/manifest.crt",
+	snprintf(cert_path, sizeof(cert_path), "%s/signer.crt",
 		 cfg->inbox_manifest_dir);
 
 	int rc1 = fetch_file(manifest_url, manifest_path, cfg);
@@ -140,7 +140,7 @@ static int fetch_manifest(const struct ota_config *cfg) {
 	if (rc2)
 		fprintf(stderr, "Failed to fetch manifest.json.sig\n");
 	if (rc3)
-		fprintf(stderr, "Failed to fetch manifest.crt\n");
+		fprintf(stderr, "Failed to fetch signer.crt\n");
 
 	return rc1 || rc2 || rc3;
 }
@@ -370,7 +370,7 @@ int ota_fetch_run(bool daemon_mode, const struct ota_config *cfg) {
 				 "%s/manifest.json.sig",
 				 cfg->inbox_manifest_dir);
 			snprintf(cert_path, sizeof(cert_path),
-				 "%s/manifest.crt", cfg->inbox_manifest_dir);
+				 "%s/signer.crt", cfg->inbox_manifest_dir);
 
 			char errbuf[VERIFY_ERRBUF_LEN] = {0};
 			verify_result_t vres = verify_signature_with_cert(
