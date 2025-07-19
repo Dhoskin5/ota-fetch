@@ -9,7 +9,7 @@ from cryptography.hazmat.backends import default_backend
 
 def main():
     parser = argparse.ArgumentParser(description="Sign manifest.json with a PEM private key.")
-    parser.add_argument('--key', default="../private/private.key", help='Path to signer private key (PEM)')
+    parser.add_argument('--key', default="../private/signer.key", help='Path to signer private key (PEM)')
     parser.add_argument('--infile', default="../server/manifest.json", help='Path to manifest.json')
     parser.add_argument('--sigfile', default="../server/manifest.json.sig", help='Output signature file (binary)')
     parser.add_argument('--password', help='Key password if encrypted')

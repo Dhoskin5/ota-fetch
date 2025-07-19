@@ -7,11 +7,14 @@ Makefile
 
 # Test output
 /test/private/*
+/test/client/*
 /test/var/lib/ota_fetch/inbox/*
 /test/var/lib/ota_fetch/current/*
 /test/server/*.sig
 /test/server/*.crt
+/test/server/*.key
 !/test/private/.gitkeep
+!/test/client/.gitkeep
 !/test/var/lib/ota_fetch/inbox/.gitkeep
 !/test/var/lib/ota_fetch/current/.gitkeep
 /test/var/*.log*
