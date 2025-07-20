@@ -15,7 +15,7 @@ INBOX_MANIFEST="$INBOX_DIR/manifest.json"
 CURRENT_MANIFEST="$CURRENT_DIR/manifest.json"
 SERVER_ROOT="$TEST_DIR/server"
 BASE_MANIFEST="$SERVER_ROOT/manifest_base.json"
-PORT=8080
+PORT=8443
 
 # Utility: hash file or print error
 hash_file() {
@@ -35,18 +35,17 @@ set_manifest_version() {
     cd "$TEST_DIR"
 }
 
-echo "Starting local HTTP test server on port $PORT"
-python3 -m http.server $PORT --directory "$SERVER_ROOT" > /dev/null 2>&1 &
-SERVER_PID=$!
-
 cleanup() {
-    echo "Stopping HTTP server (PID $SERVER_PID)"
+    echo "Stopping HTTPS server (PID $SERVER_PID)"
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
 
-sleep 1
+echo "Starting local HTTPS (mTLS) test server on port $PORT"
+python3 "$SCRIPTS_DIR/https_server.py" "$PORT" &
+SERVER_PID=$!
+
 
 set_manifest_version "8.8.8-test" "$SERVER_ROOT/manifest.json"
 
@@ -60,9 +59,9 @@ echo "===== FIRST ota-fetch RUN (should apply update) ====="
 SERVER_HASH=$(hash_file "$SERVER_ROOT/manifest.json")
 CUR_HASH=$(hash_file "$CURRENT_MANIFEST")
 if [[ "$SERVER_HASH" == "$CUR_HASH" ]]; then
-    echo "[OK] Manifest unchanged after second run."
+    echo "[OK] Manifest unchanged after first run."
 else
-    echo "[FAIL] Manifest hash changed unexpectedly after second run."
+    echo "[FAIL] Manifest hash changed unexpectedly after first run."
     exit 1
 fi
 
