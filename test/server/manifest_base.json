@@ -8,7 +8,7 @@
       "filename": "bundle.raucb",
       "size": 12345678,
       "sha256": "8de858cbc1dc248ea5d39cc1ceaa830dd129d7b7e76d16ac2e43cac658879cfe",
-      "url": "http://localhost:8080/bundle.raucb"
+      "url": "https://localhost:8443/bundle.raucb"
     }
   ]
 }

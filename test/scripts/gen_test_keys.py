@@ -5,7 +5,9 @@ from pathlib import Path
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
+from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID, ExtensionOID
+from cryptography.x509 import DNSName, SubjectAlternativeName
+
 from cryptography.hazmat.backends import default_backend
 from datetime import datetime, timedelta
 
@@ -57,7 +59,7 @@ def gen_root_ca():
     save_key_and_cert(CA_KEY, CA_CERT, ca_key, ca_cert)
     print("    Done.")
 
-def sign_cert(ca_key, ca_cert, subject, public_key, usage_oid):
+def sign_cert(ca_key, ca_cert, subject, public_key, usage_oid, san_list=None):
     builder = (
         x509.CertificateBuilder()
         .subject_name(subject)
@@ -69,6 +71,11 @@ def sign_cert(ca_key, ca_cert, subject, public_key, usage_oid):
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
         .add_extension(x509.ExtendedKeyUsage([usage_oid]), critical=False)
     )
+    if san_list:
+        builder = builder.add_extension(
+            x509.SubjectAlternativeName([x509.DNSName(name) for name in san_list]),
+            critical=False
+        )
     return builder.sign(ca_key, hashes.SHA256(), default_backend())
 
 def gen_signer_cert():
@@ -83,7 +90,7 @@ def gen_signer_cert():
     save_key_and_cert(SIGNER_KEY, SIGNER_CERT, signer_key, signer_cert)
     print("    Done.")
 
-def gen_tls_cert(name, subject, usage_oid, output_dir):
+def gen_tls_cert(name, subject, usage_oid, output_dir, san_list=None):
     key_path = output_dir / f"{name}.key"
     cert_path = output_dir / f"{name}.crt"
     print(f"[*] Generating TLS cert for {name} ({key_path}, {cert_path})...")
@@ -93,7 +100,7 @@ def gen_tls_cert(name, subject, usage_oid, output_dir):
         ca_cert = x509.load_pem_x509_certificate(f.read(), backend=default_backend())
 
     key = ec.generate_private_key(ec.SECP256R1(), default_backend())
-    cert = sign_cert(ca_key, ca_cert, subject, key.public_key(), usage_oid)
+    cert = sign_cert(ca_key, ca_cert, subject, key.public_key(), usage_oid, san_list)
     save_key_and_cert(key_path, cert_path, key, cert)
     print("    Done.")
 
@@ -101,8 +108,10 @@ def main():
     ensure_dirs()
     gen_root_ca()
     gen_signer_cert()
-    gen_tls_cert("server", SERVER_SUBJECT, ExtendedKeyUsageOID.SERVER_AUTH, SERVER)
-    gen_tls_cert("client", CLIENT_SUBJECT, ExtendedKeyUsageOID.CLIENT_AUTH, CLIENT)
+    gen_tls_cert("server", SERVER_SUBJECT, ExtendedKeyUsageOID.SERVER_AUTH, SERVER, san_list=["localhost"])
+    gen_tls_cert("client", CLIENT_SUBJECT, ExtendedKeyUsageOID.CLIENT_AUTH, CLIENT, san_list=["ota-fetch-client"])
+
+
 
     print("\nTest keys and certs generated:\n")
     print(f"  Root CA key:     {CA_KEY}")

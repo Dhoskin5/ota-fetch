@@ -82,10 +82,16 @@ static int fetch_file(const char *url, const char *dest_path,
 	if (res != CURLE_OK) {
 		fprintf(stderr, "curl error fetching %s: %s\n", url,
 			curl_easy_strerror(res));
+
+		long verify_result = 0;
+		curl_easy_getinfo(curl, CURLINFO_SSL_VERIFYRESULT, &verify_result);
+		fprintf(stderr, "SSL verify result: %ld\n", verify_result);
+
 		curl_easy_cleanup(curl);
 		free(buf.data);
 		return 2;
 	}
+
 	curl_easy_cleanup(curl);
 
 	// Ensure directory exists
