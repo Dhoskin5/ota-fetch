@@ -39,9 +39,8 @@ manifest_t *manifest_load(const char *path) {
 	m->version = DUP(cJSON_GetObjectItem(root, "version")->valuestring);
 	m->created = DUP(cJSON_GetObjectItem(root, "created")->valuestring);
 	m->target = DUP(cJSON_GetObjectItem(root, "target")->valuestring);
-	m->update_type = DUP(cJSON_GetObjectItem(root, "update_type")->valuestring);
-
-	
+	m->update_type = DUP(
+	    cJSON_GetObjectItem(root, "update_type")->valuestring);
 
 	cJSON *files = cJSON_GetObjectItem(root, "files");
 	if (files && cJSON_GetArraySize(files) > 0) {
