@@ -1,3 +1,21 @@
+/**
+ * @file ota_fetch.c
+ * @brief OTA Fetcher core logic for secure embedded update downloads.
+ *
+ * This file implements the main OTA fetch and update loop for embedded Linux.
+ * Features:
+ *   - Secure HTTPS/mTLS downloads via libcurl
+ *   - Manifest signature verification (OpenSSL)
+ *   - Payload integrity validation (SHA-256)
+ *   - Integration with RAUC and other update frameworks
+ *   - One-shot and daemon (periodic) modes
+ *
+ * Designed for embedded edge systems and modularity.
+ *
+ * @author Dustin Hoskins
+ * @date 2025
+ */
+
 #include "ota_fetch.h"
 #include "hash.h"
 #include "logging.h"
@@ -12,9 +30,23 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define FETCH_INTERVAL_SEC 3600 // 1 hour loop in daemon mode
+/**
+ * @def FETCH_INTERVAL_SEC
+ * @brief Number of seconds between update checks in daemon mode.
+ */
+#define FETCH_INTERVAL_SEC 3600
+
+/**
+ * @def RETRY_DELAY
+ * @brief Number of seconds to wait before retrying a failed fetch.
+ */
 #define RETRY_DELAY 5
 
+/**
+ * @brief OTA context state.
+ *
+ * Holds paths, manifests, and configuration for a single OTA operation.
+ */
 typedef struct ota_ctx {
 	struct ota_config config;
 	manifest_t *current_manifest;
@@ -26,12 +58,32 @@ typedef struct ota_ctx {
 	char *payload_path;
 } ota_ctx_t;
 
+/**
+ * @brief In-memory data buffer for HTTP(S) downloads.
+ */
 struct memory_buffer {
 	char *data;
 	size_t size;
 };
 
-/* ------------------------------------------------------------------------ */
+/**
+ * @brief Result codes for file equality checks.
+ */
+typedef enum {
+	FILES_EQ = 0,  /**< Files are equal */
+	FILES_NEQ = 1, /**< Files are not equal */
+	FILES_ERR = -1 /**< Error occurred */
+} files_equal_result_t;
+
+/**
+ * @brief libcurl write callback for in-memory downloads.
+ *
+ * @param contents Data pointer from libcurl.
+ * @param size     Size of each item.
+ * @param nmemb    Number of items.
+ * @param userp    User data pointer (memory_buffer).
+ * @return Number of bytes written.
+ */
 static size_t write_callback(void *contents, size_t size, size_t nmemb,
 			     void *userp) {
 	size_t total_size = size * nmemb;
@@ -48,7 +100,13 @@ static size_t write_callback(void *contents, size_t size, size_t nmemb,
 	return total_size;
 }
 
-/* ------------------------------------------------------------------------ */
+/**
+ * @brief Build a path by joining a directory and a filename.
+ *
+ * @param dir  Directory path.
+ * @param file Filename.
+ * @return Newly allocated path string (must be freed), or NULL on error.
+ */
 static char *build_path(const char *dir, const char *file) {
 	if (!dir || !file) {
 		return NULL; // Prevent undefined behavior
@@ -118,9 +176,13 @@ static int mkdir_p(const char *path, mode_t mode) {
 	return 0;
 }
 
-typedef enum { FILES_EQ = 0, FILES_NEQ = 1, FILES_ERR = -1 } files_equal_result_t;
-
-/* ------------------------------------------------------------------------ */
+/**
+ * @brief Compare two files by SHA256 hash.
+ *
+ * @param path1 First file path.
+ * @param path2 Second file path.
+ * @return FILES_EQ if equal, FILES_NEQ if not, FILES_ERR on error.
+ */
 static int files_equal(const char *path1, const char *path2) {
 	uint8_t hash1[32], hash2[32];
 	int irethash1;
@@ -142,13 +204,25 @@ static int files_equal(const char *path1, const char *path2) {
 	return (memcmp(hash1, hash2, 32) == 0) ? FILES_EQ : FILES_NEQ;
 }
 
-/* ------------------------------------------------------------------------ */
+/**
+ * @brief Check if a file exists.
+ *
+ * @param path File path.
+ * @return 1 if file exists, 0 otherwise.
+ */
 static int file_exists(const char *path) {
 	struct stat st;
 	return (path && stat(path, &st) == 0);
 }
 
-/* ------------------------------------------------------------------------ */
+/**
+ * @brief Download a file from a URL to a local path using HTTPS/mTLS.
+ *
+ * @param url       Remote file URL.
+ * @param dest_path Local destination path.
+ * @param cfg       OTA config (includes certs/keys).
+ * @return 0 on success, -1 on error.
+ */
 static int fetch_file(const char *url, const char *dest_path,
 		      const struct ota_config *cfg) {
 	CURL *curl = curl_easy_init();
@@ -213,7 +287,15 @@ static int fetch_file(const char *url, const char *dest_path,
 	return 0;
 }
 
-/* ------------------------------------------------------------------------ */
+/**
+ * @brief Initialize OTA context (paths, config, manifests).
+ *
+ * @param ctx OTA context struct to initialize.
+ * @param cfg OTA configuration.
+ * @note ctx->payload_path is allocated in this function and freed by
+ * ota_ctx_free().
+ * @return 0 on success, -1 on error.
+ */
 static int ota_ctx_init(ota_ctx_t *ctx, const struct ota_config *cfg) {
 	int iRet = 0;
 	memset(ctx, 0, sizeof(*ctx));
@@ -256,7 +338,11 @@ static int ota_ctx_init(ota_ctx_t *ctx, const struct ota_config *cfg) {
 	return iRet;
 }
 
-/* ------------------------------------------------------------------------ */
+/**
+ * @brief Free all memory/resources in OTA context.
+ *
+ * @param ctx OTA context to clean up.
+ */
 static void ota_ctx_free(ota_ctx_t *ctx) {
 
 	if (ctx->inbox_manifest != NULL) {
@@ -295,7 +381,12 @@ static void ota_ctx_free(ota_ctx_t *ctx) {
 	}
 }
 
-/* ------------------------------------------------------------------------ */
+/**
+ * @brief Download new manifest, signature, and signer cert from server.
+ *
+ * @param ctx OTA context.
+ * @return 0 on success, non-zero on error.
+ */
 static int fetch_new_manifest(ota_ctx_t *ctx) {
 
 	char *manifest_url = NULL;
@@ -331,7 +422,12 @@ static int fetch_new_manifest(ota_ctx_t *ctx) {
 	return rc1 || rc2 || rc3;
 }
 
-/* ------------------------------------------------------------------------ */
+/**
+ * @brief Verify new manifest signature with OpenSSL and provided certs.
+ *
+ * @param ctx OTA context.
+ * @return 0 if valid, -1 on error.
+ */
 static int validate_new_manifest(ota_ctx_t *ctx) {
 	char errbuf[VERIFY_ERRBUF_LEN] = {0};
 	verify_result_t vres = verify_signature_with_cert(
@@ -348,7 +444,12 @@ static int validate_new_manifest(ota_ctx_t *ctx) {
 	return 0;
 }
 
-/* ------------------------------------------------------------------------ */
+/**
+ * @brief Compare new and current manifests for changes.
+ *
+ * @param ctx OTA context.
+ * @return 0 if same, 1 if update required, -1 on error.
+ */
 static int compare_manifests(ota_ctx_t *ctx) {
 
 	if (!file_exists(ctx->current_manifest_path)) {
@@ -361,7 +462,7 @@ static int compare_manifests(ota_ctx_t *ctx) {
 	}
 
 	int ret = files_equal(ctx->current_manifest_path,
-			     ctx->inbox_manifest_path);
+			      ctx->inbox_manifest_path);
 	if (ret == 0) {
 		LOG_INFO("Manifest matches: System up to date");
 	} else if (ret == 1) {
@@ -373,7 +474,12 @@ static int compare_manifests(ota_ctx_t *ctx) {
 	return ret;
 }
 
-/* ------------------------------------------------------------------------ */
+/**
+ * @brief Move new inbox manifest into place as current manifest.
+ *
+ * @param ctx OTA context.
+ * @return 0 on success, -1 on error.
+ */
 static int make_new_manifest_current(ota_ctx_t *ctx) {
 
 	// Ensure destination directory exists
@@ -397,7 +503,12 @@ static int make_new_manifest_current(ota_ctx_t *ctx) {
 	return 0;
 }
 
-/* ------------------------------------------------------------------------ */
+/**
+ * @brief Download OTA payload file specified in the manifest.
+ *
+ * @param ctx OTA context.
+ * @return 0 on success, -1 on error.
+ */
 static int fetch_payload(ota_ctx_t *ctx) {
 	int ret;
 
@@ -421,7 +532,12 @@ static int fetch_payload(ota_ctx_t *ctx) {
 	return ret;
 }
 
-/* ------------------------------------------------------------------------ */
+/**
+ * @brief Validate downloaded payload by SHA256 hash.
+ *
+ * @param ctx OTA context.
+ * @return 0 if valid, -1 on mismatch or error.
+ */
 static int validate_payload(ota_ctx_t *ctx) {
 
 	FILE *fp = fopen(ctx->payload_path, "rb");
@@ -461,7 +577,14 @@ static int validate_payload(ota_ctx_t *ctx) {
 	return 0;
 }
 
-/* ------------------------------------------------------------------------ */
+/**
+ * @brief Apply the OTA update payload.
+ *
+ * Integrates with RAUC or simulates update for testing.
+ *
+ * @param ctx OTA context.
+ * @return 0 on success, non-zero on error.
+ */
 static int apply_payload(ota_ctx_t *ctx) {
 
 	LOG_INFO("Applying payload");

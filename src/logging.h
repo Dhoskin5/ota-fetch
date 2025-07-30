@@ -1,54 +1,156 @@
+/**
+ * @file logging.h
+ * @brief Simple embedded logging macros and helpers for OTA projects.
+ *
+ * Provides compile-time configurable logging levels and convenience macros for
+ * standardized error, warning, info, and debug output. Designed to be minimal,
+ * portable, and friendly to embedded and Linux systems.
+ *
+ * @author Dustin Hoskins
+ * @date 2025
+ */
+
 #ifndef LOGGING_H
 #define LOGGING_H
-#include <stdio.h>
+
 #include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 
-// Logging levels
-#define LOG_LEVEL_NONE  0
+/**
+ * @def LOG_LEVEL_NONE
+ * @brief Logging level: disables all logging.
+ */
+#define LOG_LEVEL_NONE 0
+
+/**
+ * @def LOG_LEVEL_ERROR
+ * @brief Logging level: errors only.
+ */
 #define LOG_LEVEL_ERROR 1
-#define LOG_LEVEL_WARN  2
-#define LOG_LEVEL_INFO  3
+
+/**
+ * @def LOG_LEVEL_WARN
+ * @brief Logging level: warnings and above.
+ */
+#define LOG_LEVEL_WARN 2
+
+/**
+ * @def LOG_LEVEL_INFO
+ * @brief Logging level: info, warnings, and errors.
+ */
+#define LOG_LEVEL_INFO 3
+
+/**
+ * @def LOG_LEVEL_DEBUG
+ * @brief Logging level: all log output, including debug.
+ */
 #define LOG_LEVEL_DEBUG 4
 
-// Default log level: Change here or via -DLOG_LEVEL=...
+/**
+ * @def LOG_LEVEL
+ * @brief Default compile-time log level (change with -DLOG_LEVEL=...).
+ */
 #ifndef LOG_LEVEL
 #define LOG_LEVEL LOG_LEVEL_INFO
 #endif
 
-// Log level string helper
+/**
+ * @brief Convert a numeric log level to its string label.
+ *
+ * @param level Integer log level (LOG_LEVEL_ERROR, etc).
+ * @return Pointer to static string ("ERROR", "WARN", "INFO", "DEBUG", "LOG").
+ */
 static inline const char *log_level_str(int level) {
-    switch (level) {
-        case LOG_LEVEL_ERROR: return "ERROR";
-        case LOG_LEVEL_WARN:  return "WARN";
-        case LOG_LEVEL_INFO:  return "INFO";
-        case LOG_LEVEL_DEBUG: return "DEBUG";
-        default: return "LOG";
-    }
+	switch (level) {
+	case LOG_LEVEL_ERROR:
+		return "ERROR";
+	case LOG_LEVEL_WARN:
+		return "WARN";
+	case LOG_LEVEL_INFO:
+		return "INFO";
+	case LOG_LEVEL_DEBUG:
+		return "DEBUG";
+	default:
+		return "LOG";
+	}
 }
 
-// Returns pointer to the base filename within a path (no allocations)
+/**
+ * @brief Returns pointer to the base filename within a path (no allocations).
+ *
+ * Cross-platform: supports '/' (POSIX) and '\\' (Windows).
+ *
+ * @param path Full file path string.
+ * @return Pointer to filename component.
+ */
 static inline const char *basename_c(const char *path) {
-    const char *slash = strrchr(path, '/');
-    #ifdef _WIN32
-    const char *backslash = strrchr(path, '\\');
-    if (!slash || (backslash && backslash > slash)) slash = backslash;
-    #endif
-    return slash ? slash + 1 : path;
+	const char *slash = strrchr(path, '/');
+#ifdef _WIN32
+	const char *backslash = strrchr(path, '\\');
+	if (!slash || (backslash && backslash > slash))
+		slash = backslash;
+#endif
+	return slash ? slash + 1 : path;
 }
 
-// Core macro
-#define LOG(level, fmt, ...) \
-    do { \
-        if ((level) <= LOG_LEVEL) { \
-            fprintf(stderr, "[%s] %s:%d:%s(): " fmt "\n", \
-                log_level_str(level), basename_c(__FILE__), __LINE__, __func__, ##__VA_ARGS__); \
-        } \
-    } while (0)
+/**
+ * @def LOG(level, fmt, ...)
+ * @brief Core logging macro for custom log levels.
+ *
+ * Prints standardized log output to stderr with source file, line, and
+ * function.
+ *
+ * Example:
+ *   LOG(LOG_LEVEL_INFO, "Initialization complete: status=%d", status);
+ *
+ * @param level Log level constant (LOG_LEVEL_INFO, etc).
+ * @param fmt   printf-style format string.
+ * @param ...   Additional arguments for format string.
+ */
+#define LOG(level, fmt, ...)                                                   \
+	do {                                                                   \
+		if ((level) <= LOG_LEVEL) {                                    \
+			fprintf(stderr, "[%s] %s:%d:%s(): " fmt "\n",          \
+				log_level_str(level), basename_c(__FILE__),    \
+				__LINE__, __func__, ##__VA_ARGS__);            \
+		}                                                              \
+	} while (0)
 
-// Convenience wrappers
+/**
+ * @def LOG_ERROR(fmt, ...)
+ * @brief Convenience macro for logging errors.
+ *
+ * @param fmt printf-style format string.
+ * @param ... Additional arguments.
+ */
 #define LOG_ERROR(fmt, ...) LOG(LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
-#define LOG_WARN(fmt, ...)  LOG(LOG_LEVEL_WARN,  fmt, ##__VA_ARGS__)
-#define LOG_INFO(fmt, ...)  LOG(LOG_LEVEL_INFO,  fmt, ##__VA_ARGS__)
+
+/**
+ * @def LOG_WARN(fmt, ...)
+ * @brief Convenience macro for logging warnings.
+ *
+ * @param fmt printf-style format string.
+ * @param ... Additional arguments.
+ */
+#define LOG_WARN(fmt, ...) LOG(LOG_LEVEL_WARN, fmt, ##__VA_ARGS__)
+
+/**
+ * @def LOG_INFO(fmt, ...)
+ * @brief Convenience macro for logging informational messages.
+ *
+ * @param fmt printf-style format string.
+ * @param ... Additional arguments.
+ */
+#define LOG_INFO(fmt, ...) LOG(LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
+
+/**
+ * @def LOG_DEBUG(fmt, ...)
+ * @brief Convenience macro for logging debug messages.
+ *
+ * @param fmt printf-style format string.
+ * @param ... Additional arguments.
+ */
 #define LOG_DEBUG(fmt, ...) LOG(LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__)
-#endif
+
+#endif // LOGGING_H

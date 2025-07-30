@@ -19,6 +19,9 @@ Makefile
 !/test/var/lib/ota_fetch/current/.gitkeep
 /test/var/*.log*
 
+#Docs
+/docs/*
+
 # Editor junk
 *.swp
 *.swo

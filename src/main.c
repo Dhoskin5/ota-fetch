@@ -1,3 +1,14 @@
+/**
+ * @file main.c
+ * @brief OTA Fetcher CLI entry point.
+ *
+ * Parses command-line arguments, loads configuration, and invokes
+ * the main OTA fetch/update logic. Supports one-shot and daemon modes.
+ *
+ * @author Dustin Hoskins
+ * @date 2025
+ */
+
 #include "config.h"
 #include "manifest.h"
 #include "ota_fetch.h"
@@ -6,12 +17,33 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum run_mode { MODE_ONESHOT, MODE_DAEMON };
+/**
+ * @brief Supported run modes for OTA fetcher.
+ */
+enum run_mode {
+	MODE_ONESHOT, /**< Run once and exit */
+	MODE_DAEMON   /**< Run periodically as a daemon */
+};
 
+/**
+ * @brief Print usage/help text to stdout.
+ *
+ * @param progname Name of the executable (argv[0]).
+ */
 void print_usage(const char *progname) {
 	printf("Usage: %s [--daemon] [--oneshot] [--config=PATH]\n", progname);
 }
 
+/**
+ * @brief Main entry point for OTA fetcher CLI.
+ *
+ * Parses CLI arguments, loads the OTA configuration, prints config,
+ * and runs the main OTA fetch loop in the selected mode.
+ *
+ * @param argc Argument count.
+ * @param argv Argument vector.
+ * @return Exit code (0 on success, nonzero on error).
+ */
 int main(int argc, char *argv[]) {
 	const char *config_path = "/etc/ota-fetch/ota-fetch.conf";
 	enum run_mode mode = MODE_ONESHOT;
