@@ -36,3 +36,4 @@ Makefile
 Thumbs.db
 
 fix_large_push.sh
+*.raucb
