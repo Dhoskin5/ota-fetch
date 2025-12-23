@@ -33,6 +33,8 @@ int config_handler(void *user, const char *section, const char *name,
 		cfg->root_ca_path = DUP(value);
 	} else if (MATCH("system", "log_file")) {
 		cfg->log_file = DUP(value);
+	} else if (MATCH("system", "device_id")) {
+		cfg->device_id = DUP(value);
 	}
 
 	return 1; // success
@@ -54,6 +56,7 @@ void config_free(struct ota_config *config) {
 	free(config->current_manifest_dir);
 	free(config->root_ca_path);
 	free(config->log_file);
+	free(config->device_id);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -69,4 +72,5 @@ void config_print(const struct ota_config *config) {
 	printf("current_manfiest_dir= %s\n", config->current_manifest_dir);
 	printf("root_ca_path	    = %s\n", config->root_ca_path);
 	printf("log_file            = %s\n", config->log_file);
+	printf("device_id            = %s\n", config->device_id);
 }

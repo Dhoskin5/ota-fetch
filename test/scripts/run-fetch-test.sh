@@ -29,7 +29,7 @@ hash_file() {
 set_manifest_version() {
     local version="$1"
     local manifest="$2"
-    jq --arg ver "$version" '.version = $ver' "$BASE_MANIFEST" > "$manifest"
+    jq --arg ver "$version" '.manifest_version = $ver' "$BASE_MANIFEST" > "$manifest"
     cd "$SCRIPTS_DIR"
     python3 sign_manifest.py
     cd "$TEST_DIR"

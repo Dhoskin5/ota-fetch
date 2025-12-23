@@ -42,6 +42,8 @@ struct ota_config {
 	char *root_ca_path;
 	/**< Path to log file (or NULL for stderr) */
 	char *log_file;
+	/**< Device ID for release */
+	char *device_id;
 };
 
 /**

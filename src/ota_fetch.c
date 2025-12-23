@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/reboot.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -56,6 +57,7 @@ typedef struct ota_ctx {
 	char *inbox_sig_path;
 	char *inbox_cert_path;
 	char *payload_path;
+	manifest_release_t *release;
 } ota_ctx_t;
 
 /**
@@ -504,41 +506,55 @@ static int make_new_manifest_current(ota_ctx_t *ctx) {
 }
 
 /**
- * @brief Download OTA payload file specified in the manifest.
+ * @brief Download OTA release payload file specified in the manifest.
  *
  * @param ctx OTA context.
  * @return 0 on success, -1 on error.
  */
-static int fetch_payload(ota_ctx_t *ctx) {
+static int fetch_release(ota_ctx_t *ctx) {
 	int ret;
+
+	ctx->release = manifest_select_release(ctx->inbox_manifest, ctx->config.device_id);
+
+	if (ctx->release == NULL) {
+		LOG_ERROR("Release not found");
+		return -1;
+	}
 
 	// Assemble path where payload will be downloaded
 	// Note: ctx->payload_path is freed in ota_ctx_free. Do not call
 	// fetch_payload() multiple times per ctx lifecycle.
 	ctx->payload_path = build_path(ctx->config.inbox_manifest_dir,
-				       ctx->inbox_manifest->filename);
+				       ctx->release->files[0].filename);
+
+	char *payload_url = NULL;
+	payload_url = build_path(ctx->config.server_url,
+				 ctx->release->files[0].path);
+	
+	if (payload_url == NULL) {
+		LOG_ERROR("Failed to assemble release payload URL");
+		return -1;
+	}
 
 	// Fetch payload from URL provided in manifest
-	ret = fetch_file(ctx->inbox_manifest->url, ctx->payload_path,
-			 &ctx->config);
+	ret = fetch_file(payload_url, ctx->payload_path, &ctx->config);
 
-	if (ret == 0) {
-		LOG_INFO("Payload downloaded successful: %s",
-			 ctx->payload_path);
-	} else {
-		LOG_ERROR("Payload downloaded failed");
+	if (ret != 0) {
+		LOG_ERROR("Release payload download failed");
 	}
+
+	free(payload_url);
 
 	return ret;
 }
 
 /**
- * @brief Validate downloaded payload by SHA256 hash.
+ * @brief Validate downloaded release payload by SHA256 hash.
  *
  * @param ctx OTA context.
  * @return 0 if valid, -1 on mismatch or error.
  */
-static int validate_payload(ota_ctx_t *ctx) {
+static int validate_release(ota_ctx_t *ctx) {
 
 	FILE *fp = fopen(ctx->payload_path, "rb");
 	if (!fp) {
@@ -546,7 +562,6 @@ static int validate_payload(ota_ctx_t *ctx) {
 			  ctx->payload_path);
 		return -1;
 	}
-
 	unsigned char hash[SHA256_DIGEST_LENGTH];
 	char hash_string[SHA256_DIGEST_LENGTH * 2 + 1];
 	hash_string[sizeof(hash_string) - 1] = '\0';
@@ -566,9 +581,9 @@ static int validate_payload(ota_ctx_t *ctx) {
 		snprintf(&hash_string[i * 2], 3, "%02x", hash[i]);
 	}
 
-	if (strcmp(hash_string, ctx->inbox_manifest->sha256) != 0) {
+	if (strcmp(hash_string, ctx->release->files[0].sha256) != 0) {
 		LOG_ERROR("SHA256 mismatch");
-		LOG_ERROR("Expected: %s", ctx->inbox_manifest->sha256);
+		LOG_ERROR("Expected: %s", ctx->release->files[0].sha256);
 		LOG_ERROR("Actual:   %s", hash_string);
 		return -1;
 	}
@@ -578,30 +593,60 @@ static int validate_payload(ota_ctx_t *ctx) {
 }
 
 /**
- * @brief Apply the OTA update payload.
+ * @brief Apply the OTA release payload.
  *
  * Integrates with RAUC or simulates update for testing.
  *
  * @param ctx OTA context.
  * @return 0 on success, non-zero on error.
  */
-static int apply_payload(ota_ctx_t *ctx) {
+static int apply_release(ota_ctx_t *ctx) {
+	LOG_INFO("Applying release payload");
 
-	LOG_INFO("Applying payload");
+	const char *file_type = ctx->release->files[0].file_type;
 
-	if (strcmp(ctx->inbox_manifest->update_type, "rauc_bundle_test") == 0) {
-
+	if (strcmp(file_type, "rauc_bundle_test") == 0) {
 		LOG_INFO("Simulating RAUC bundle update for testing");
 		make_new_manifest_current(ctx);
 
-	} else if (strcmp(ctx->inbox_manifest->update_type, "rauc_bundle") ==
-		   0) {
+	} else if (strcmp(file_type, "rauc_bundle") == 0) {
+		LOG_INFO("Installing RAUC bundle with no auto-reboot");
 
-		// Real RAUC integration (e.g. call rauc CLI)
-		// TODO
+		const char *bundle_path = ctx->payload_path;
+		char *const argv[] = {"rauc", "install", "--no-reboot",
+				      (char *)bundle_path, NULL};
+
+		pid_t pid = fork();
+		if (pid == 0) {
+			// Child process
+			execvp("rauc", argv);
+			perror("execvp failed");
+			_exit(1);
+		} else if (pid > 0) {
+			// Parent process
+			int status;
+			waitpid(pid, &status, 0);
+			return status;
+		} else {
+			// Fork failed
+			perror("fork failed");
+			return -1;
+		}
+
+		LOG_INFO("RAUC install succeeded");
+
+		if (!make_new_manifest_current(ctx)) {
+			LOG_ERROR("Failed to update current manifest");
+			return 1;
+		}
+
+		LOG_INFO("Rebooting system...");
+		sync();
+		reboot(RB_AUTOBOOT); // or system("reboot")
 
 	} else {
-		// ... handle other types as needed
+		LOG_ERROR("Unsupported update type: %s", file_type);
+		return 1;
 	}
 
 	return 0;
@@ -639,15 +684,15 @@ int ota_fetch_run(bool daemon_mode, const struct ota_config *cfg) {
 			goto attempt_end;
 		}
 
-		rc = fetch_payload(&ctx);
+		rc = fetch_release(&ctx);
 		if (rc != 0)
 			goto attempt_end;
 
-		rc = validate_payload(&ctx);
+		rc = validate_release(&ctx);
 		if (rc != 0)
 			goto attempt_end;
 
-		rc = apply_payload(&ctx);
+		rc = apply_release(&ctx);
 		if ((rc == 0) && (!daemon_mode)) {
 			// System up to data + one-shot, return
 			ota_ctx_free(&ctx);
