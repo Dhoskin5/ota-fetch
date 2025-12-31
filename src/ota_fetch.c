@@ -239,7 +239,13 @@ static int fetch_file(const char *url, const char *dest_path,
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, cfg->connect_timeout);
+
+	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, cfg->connect_timeout);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, cfg->transfer_timeout);
+
+	//TODO:
+	// curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, cfg->);
+	// curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME,  cfg->);
 
 	// mTLS setup
 	curl_easy_setopt(curl, CURLOPT_SSLCERT, cfg->client_cert);

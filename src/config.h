@@ -32,6 +32,8 @@ struct ota_config {
 	char *client_key;
 	/**< HTTP(S) connect timeout, in seconds */
 	int connect_timeout;
+	/**< HTTP(S) transfer timeout, in seconds */
+	int transfer_timeout;
 	/**< Number of download retry attempts on failure */
 	int retry_attempts;
 	/**< Directory to store inbox (pending) manifests and payloads */

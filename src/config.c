@@ -23,7 +23,9 @@ int config_handler(void *user, const char *section, const char *name,
 		cfg->client_key = DUP(value);
 	} else if (MATCH("network", "connect_timeout")) {
 		cfg->connect_timeout = atoi(value);
-	} else if (MATCH("network", "retry_attempts")) {
+	} else if (MATCH("network", "transfer_timeout")) {
+		cfg->transfer_timeout = atoi(value);
+	}else if (MATCH("network", "retry_attempts")) {
 		cfg->retry_attempts = atoi(value);
 	} else if (MATCH("system", "inbox_manifest_dir")) {
 		cfg->inbox_manifest_dir = DUP(value);
@@ -67,10 +69,11 @@ void config_print(const struct ota_config *config) {
 	printf("client_cert         = %s\n", config->client_cert);
 	printf("client_key          = %s\n", config->client_key);
 	printf("connect_timeout     = %d\n", config->connect_timeout);
+	printf("transfer_timeout    = %d\n", config->transfer_timeout);
 	printf("retry_attempts      = %d\n", config->retry_attempts);
 	printf("inbox_manifest_dir  = %s\n", config->inbox_manifest_dir);
 	printf("current_manfiest_dir= %s\n", config->current_manifest_dir);
 	printf("root_ca_path	    = %s\n", config->root_ca_path);
 	printf("log_file            = %s\n", config->log_file);
-	printf("device_id            = %s\n", config->device_id);
+	printf("device_id           = %s\n", config->device_id);
 }
