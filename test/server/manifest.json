@@ -11,8 +11,8 @@
         {
           "file_type": "rauc_bundle_test",
           "filename": "h4-bundle.raucb",
-          "size": 689027501,
-          "sha256": "860b53ed6ea6a0cf602fae632cfcd28dbcf637f85a8bee28d2ee9c6cc9081669",
+          "size": 22,
+          "sha256": "a0a7a089fcd42ee695aad5e295e58db74ba06aeb9636c39120d9be756d1a3dfb",
           "path": "default/h4-bundle.raucb"
         }
       ]
@@ -26,8 +26,8 @@
         {
           "file_type": "rauc_bundle_test",
           "filename": "h4-gw-bundle.raucb",
-          "size": 689027501,
-          "sha256": "860b53ed6ea6a0cf602fae632cfcd28dbcf637f85a8bee28d2ee9c6cc9081669",
+          "size": 22,
+          "sha256": "a0a7a089fcd42ee695aad5e295e58db74ba06aeb9636c39120d9be756d1a3dfb",
           "path": "h4-gw/h4-gw-bundle.raucb"
         }
       ]
@@ -41,8 +41,8 @@
         {
           "file_type": "rauc_bundle_test",
           "filename": "h4-vision-bundle.raucb",
-          "size": 689027501,
-          "sha256": "860b53ed6ea6a0cf602fae632cfcd28dbcf637f85a8bee28d2ee9c6cc9081669",
+          "size": 22,
+          "sha256": "a0a7a089fcd42ee695aad5e295e58db74ba06aeb9636c39120d9be756d1a3dfb",
           "path": "h4-vision/h4-vision-bundle.raucb"
         }
       ]

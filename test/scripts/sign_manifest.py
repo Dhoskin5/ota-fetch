@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec, rsa, padding
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa, padding
 from cryptography.hazmat.backends import default_backend
 
 def main():
@@ -41,6 +41,8 @@ def main():
             data,
             ec.ECDSA(hashes.SHA256())
         )
+    elif isinstance(privkey, ed25519.Ed25519PrivateKey):
+        sig = privkey.sign(data)
     else:
         print("Unsupported private key type.", file=sys.stderr)
         sys.exit(1)
@@ -53,4 +55,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

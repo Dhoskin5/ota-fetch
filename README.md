@@ -18,6 +18,13 @@
 - Embedded-friendly: small footprint, minimal dependencies
 - Designed for integration with RAUC, meta-mu, and future update frameworks
 
+## Signature Verification
+
+- Supported signer key types: Ed25519, ECDSA (curve-specific, e.g., P-256),
+  and RSA.
+- Logs use stable, human-friendly key type names; OpenSSL short names are
+  emitted at DEBUG level.
+
 ## Getting Started
 
 ### Prerequisites

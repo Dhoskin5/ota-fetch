@@ -16,6 +16,37 @@ CURRENT_MANIFEST="$CURRENT_DIR/manifest.json"
 SERVER_ROOT="$TEST_DIR/server"
 BASE_MANIFEST="$SERVER_ROOT/manifest_base.json"
 PORT=8443
+SIGNER_KEY_TYPE="${SIGNER_KEY_TYPE:-}"
+PAYLOAD_DEFAULT="$SERVER_ROOT/default/h4-bundle.raucb"
+PAYLOAD_GW="$SERVER_ROOT/h4-gw/h4-gw-bundle.raucb"
+PAYLOAD_VISION="$SERVER_ROOT/h4-vision/h4-vision-bundle.raucb"
+
+if [[ -n "$SIGNER_KEY_TYPE" ]]; then
+    echo "Regenerating test keys with signer type: $SIGNER_KEY_TYPE"
+    python3 "$SCRIPTS_DIR/gen_test_keys.py" --signer-type "$SIGNER_KEY_TYPE"
+fi
+
+prepare_payloads() {
+    mkdir -p "$(dirname "$PAYLOAD_DEFAULT")" "$(dirname "$PAYLOAD_GW")" "$(dirname "$PAYLOAD_VISION")"
+
+    if [[ ! -f "$PAYLOAD_DEFAULT" ]]; then
+        printf "ota-fetch test bundle\n" > "$PAYLOAD_DEFAULT"
+    fi
+    if [[ ! -f "$PAYLOAD_GW" ]]; then
+        cp "$PAYLOAD_DEFAULT" "$PAYLOAD_GW"
+    fi
+    if [[ ! -f "$PAYLOAD_VISION" ]]; then
+        cp "$PAYLOAD_DEFAULT" "$PAYLOAD_VISION"
+    fi
+}
+
+payload_hash() {
+    sha256sum "$1" | awk '{print $1}'
+}
+
+payload_size() {
+    stat -c %s "$1"
+}
 
 # Utility: hash file or print error
 hash_file() {
@@ -29,7 +60,15 @@ hash_file() {
 set_manifest_version() {
     local version="$1"
     local manifest="$2"
-    jq --arg ver "$version" '.manifest_version = $ver' "$BASE_MANIFEST" > "$manifest"
+    local hash
+    local size
+    hash=$(payload_hash "$PAYLOAD_DEFAULT")
+    size=$(payload_size "$PAYLOAD_DEFAULT")
+    jq --arg ver "$version" --arg hash "$hash" --argjson size "$size" \
+        '.manifest_version = $ver
+         | .releases[].files[].sha256 = $hash
+         | .releases[].files[].size = $size' \
+        "$BASE_MANIFEST" > "$manifest"
     cd "$SCRIPTS_DIR"
     python3 sign_manifest.py
     cd "$TEST_DIR"
@@ -43,6 +82,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "Starting local HTTPS (mTLS) test server on port $PORT"
+prepare_payloads
 python3 "$SCRIPTS_DIR/https_server.py" "$PORT" &
 SERVER_PID=$!
 
