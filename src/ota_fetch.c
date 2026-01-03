@@ -619,7 +619,7 @@ static int apply_release(ota_ctx_t *ctx) {
 		LOG_INFO("Installing RAUC bundle with no auto-reboot");
 
 		const char *bundle_path = ctx->payload_path;
-		char *const argv[] = {"rauc", "install", "--no-reboot",
+		char *const argv[] = {"rauc", "install",
 				      (char *)bundle_path, NULL};
 
 		pid_t pid = fork();
@@ -632,7 +632,7 @@ static int apply_release(ota_ctx_t *ctx) {
 			// Parent process
 			int status;
 			waitpid(pid, &status, 0);
-			return status;
+			LOG_INFO("RAUC child proc ret=%d", status);
 		} else {
 			// Fork failed
 			perror("fork failed");
