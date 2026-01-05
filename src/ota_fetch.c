@@ -641,7 +641,7 @@ static int apply_release(ota_ctx_t *ctx) {
 
 		LOG_INFO("RAUC install succeeded");
 
-		if (!make_new_manifest_current(ctx)) {
+		if (make_new_manifest_current(ctx) != 0) {
 			LOG_ERROR("Failed to update current manifest");
 			return 1;
 		}
