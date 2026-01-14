@@ -8,6 +8,7 @@
 #include <openssl/pem.h>
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,7 +16,88 @@
 
 #include "logging.h"
 
+#define SIG_MAX_LEN (16u * 1024u)
+#define SIG_ED25519_LEN 64u
+
 /* ------------------------------------------------------------------------ */
+/* Format OpenSSL error stack into a single string (best effort). */
+static void format_openssl_errors(char *errbuf, size_t len) {
+	unsigned long err;
+	size_t used = 0;
+
+	if (!errbuf || len == 0)
+		return;
+
+	errbuf[0] = '\0';
+	while ((err = ERR_get_error()) != 0) {
+		char msg[256];
+		int written;
+
+		ERR_error_string_n(err, msg, sizeof(msg));
+		written = snprintf(errbuf + used, len - used, "%s%s",
+				   used ? "; " : "", msg);
+		if (written < 0 || (size_t)written >= len - used) {
+			errbuf[len - 1] = '\0';
+			break;
+		}
+		used += (size_t)written;
+	}
+}
+
+/* ------------------------------------------------------------------------ */
+/* Clear OpenSSL error state and reset caller error buffer. */
+static void init_error_state(char *errbuf, size_t errbuf_len) {
+	ERR_clear_error();
+	if (errbuf && errbuf_len > 0)
+		errbuf[0] = '\0';
+}
+
+/* ------------------------------------------------------------------------ */
+/* Write a formatted error message if the caller provided a buffer. */
+static void set_errbuf(char *errbuf, size_t errbuf_len, const char *fmt, ...) {
+	va_list args;
+
+	if (!errbuf || errbuf_len == 0)
+		return;
+
+	va_start(args, fmt);
+	vsnprintf(errbuf, errbuf_len, fmt, args);
+	va_end(args);
+
+	errbuf[errbuf_len - 1] = '\0';
+}
+
+/* ------------------------------------------------------------------------ */
+/* Write a formatted error message and append OpenSSL errors if present. */
+static void set_errbuf_openssl(char *errbuf, size_t errbuf_len, const char *fmt,
+			       ...) {
+	char prefix[128];
+	char openssl_err[VERIFY_ERRBUF_LEN];
+	va_list args;
+	int written;
+
+	if (!errbuf || errbuf_len == 0)
+		return;
+
+	va_start(args, fmt);
+	vsnprintf(prefix, sizeof(prefix), fmt, args);
+	va_end(args);
+	prefix[sizeof(prefix) - 1] = '\0';
+
+	openssl_err[0] = '\0';
+	format_openssl_errors(openssl_err, sizeof(openssl_err));
+
+	if (openssl_err[0])
+		written = snprintf(errbuf, errbuf_len, "%s: %s", prefix,
+				   openssl_err);
+	else
+		written = snprintf(errbuf, errbuf_len, "%s", prefix);
+	if (written < 0 || (size_t)written >= errbuf_len)
+		errbuf[errbuf_len - 1] = '\0';
+}
+
+/* ------------------------------------------------------------------------ */
+/* Provide a user-friendly key type label for logs and errors. */
 static const char *friendly_key_type_name(EVP_PKEY *pkey, char *tmp,
 					  size_t tmp_len) {
 	const EC_KEY *ec_key = NULL;
@@ -59,90 +141,449 @@ static const char *friendly_key_type_name(EVP_PKEY *pkey, char *tmp,
 	}
 }
 
-/* ------------------------------------------------------------------------ */
-static void format_openssl_errors(char *errbuf, size_t len) {
-	unsigned long err;
-	size_t used = 0;
-
-	if (!errbuf || len == 0)
-		return;
-
-	errbuf[0] = '\0';
-	while ((err = ERR_get_error()) != 0) {
-		char msg[256];
-		int written;
-
-		ERR_error_string_n(err, msg, sizeof(msg));
-		written = snprintf(errbuf + used, len - used, "%s%s",
-				   used ? "; " : "", msg);
-		if (written < 0 || (size_t)written >= len - used) {
-			errbuf[len - 1] = '\0';
-			break;
-		}
-		used += (size_t)written;
-	}
-}
+enum read_file_status {
+	READ_FILE_OK = 1,
+	READ_FILE_OPEN = 0,
+	READ_FILE_READ = -1,
+	READ_FILE_MEM = -2
+};
 
 /* ------------------------------------------------------------------------ */
+/* Read an entire file into memory (used for Ed25519 one-shot verify). */
 static int read_file_all(const char *path, unsigned char **out,
 			 size_t *out_len) {
 	FILE *fp = NULL;
 	unsigned char *buf = NULL;
-	long len = 0;
+	long file_len = 0;
+	size_t len = 0;
 	size_t read_len;
 
-	if (!out || !out_len)
-		return 0;
+	if (!path || !out || !out_len)
+		return READ_FILE_READ;
 
 	*out = NULL;
 	*out_len = 0;
 
 	fp = fopen(path, "rb");
 	if (!fp)
-		return 0;
+		return READ_FILE_OPEN;
 
 	if (fseek(fp, 0, SEEK_END) != 0)
-		goto cleanup;
-	len = ftell(fp);
-	if (len < 0)
-		goto cleanup;
+		goto read_fail;
+	file_len = ftell(fp);
+	if (file_len < 0)
+		goto read_fail;
 	if (fseek(fp, 0, SEEK_SET) != 0)
-		goto cleanup;
+		goto read_fail;
 
-	if (len == 0) {
+	if (file_len == 0) {
 		fclose(fp);
-		fp = NULL;
-		return 1;
+		return READ_FILE_OK;
 	}
 
-	buf = (unsigned char *)malloc((size_t)len);
-	if (!buf)
-		goto memfail;
+	len = (size_t)file_len;
+	if ((long)len != file_len)
+		goto read_fail;
 
-	read_len = fread(buf, 1, (size_t)len, fp);
-	if (read_len != (size_t)len)
-		goto cleanup;
+	buf = (unsigned char *)malloc(len);
+	if (!buf) {
+		fclose(fp);
+		return READ_FILE_MEM;
+	}
+
+	read_len = fread(buf, 1, len, fp);
+	if (read_len != len)
+		goto read_fail;
 
 	fclose(fp);
-	fp = NULL;
-
 	*out = buf;
-	*out_len = (size_t)len;
-	return 1;
+	*out_len = len;
+	return READ_FILE_OK;
 
-memfail:
+read_fail:
+	if (fp)
+		fclose(fp);
+	if (buf) {
+		OPENSSL_cleanse(buf, len);
+		free(buf);
+	}
+	return READ_FILE_READ;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Load a PEM-encoded signer certificate from disk. */
+static verify_result_t load_signer_cert(const char *cert_path, X509 **out_cert,
+					char *errbuf, size_t errbuf_len) {
+	FILE *fp = NULL;
+	X509 *cert = NULL;
+
+	if (!cert_path || !out_cert)
+		return VERIFY_ERR_UNKNOWN;
+
+	*out_cert = NULL;
+	fp = fopen(cert_path, "rb");
+	if (!fp) {
+		set_errbuf(errbuf, errbuf_len,
+			   "Failed to open signer certificate: %s", cert_path);
+		return VERIFY_ERR_OPEN_FILE;
+	}
+
+	cert = PEM_read_X509(fp, NULL, NULL, NULL);
 	fclose(fp);
-	fp = NULL;
-	return -2;
+	if (!cert) {
+		set_errbuf_openssl(errbuf, errbuf_len,
+				   "Failed to load signer certificate: %s",
+				   cert_path);
+		return VERIFY_ERR_LOAD_CERT;
+	}
+
+	*out_cert = cert;
+	return VERIFY_OK;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Load a CA bundle (file or directory) into an X509 store. */
+static verify_result_t load_ca_store(const char *ca_path,
+				     X509_STORE **out_store, char *errbuf,
+				     size_t errbuf_len) {
+	X509_STORE *store = NULL;
+	struct stat st;
+
+	if (!ca_path || !out_store)
+		return VERIFY_ERR_UNKNOWN;
+
+	*out_store = NULL;
+	store = X509_STORE_new();
+	if (!store) {
+		set_errbuf(errbuf, errbuf_len,
+			   "Out of memory creating CA store");
+		return VERIFY_ERR_MEM;
+	}
+
+	if (stat(ca_path, &st) != 0) {
+		set_errbuf(errbuf, errbuf_len, "Failed to stat CA path: %s",
+			   ca_path);
+		X509_STORE_free(store);
+		return VERIFY_ERR_LOAD_CA;
+	}
+
+	if (S_ISDIR(st.st_mode)) {
+		if (X509_STORE_load_locations(store, NULL, ca_path) != 1) {
+			set_errbuf_openssl(errbuf, errbuf_len,
+					   "Failed to load CA directory: %s",
+					   ca_path);
+			X509_STORE_free(store);
+			return VERIFY_ERR_LOAD_CA;
+		}
+	} else {
+		if (X509_STORE_load_locations(store, ca_path, NULL) != 1) {
+			set_errbuf_openssl(errbuf, errbuf_len,
+					   "Failed to load CA bundle: %s",
+					   ca_path);
+			X509_STORE_free(store);
+			return VERIFY_ERR_LOAD_CA;
+		}
+	}
+
+	*out_store = store;
+	return VERIFY_OK;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Verify the signer certificate against the provided CA store. */
+static verify_result_t verify_signer_cert(X509_STORE *store, X509 *cert,
+					  char *errbuf, size_t errbuf_len) {
+	X509_STORE_CTX *ctx = NULL;
+	verify_result_t result = VERIFY_OK;
+
+	if (!store || !cert) {
+		set_errbuf(errbuf, errbuf_len,
+			   "Certificate verification failed: invalid inputs");
+		return VERIFY_ERR_CERT_VERIFY;
+	}
+
+	ctx = X509_STORE_CTX_new();
+	if (!ctx) {
+		set_errbuf(errbuf, errbuf_len,
+			   "Out of memory creating cert verify context");
+		return VERIFY_ERR_MEM;
+	}
+
+	if (X509_STORE_CTX_init(ctx, store, cert, NULL) != 1) {
+		set_errbuf_openssl(errbuf, errbuf_len,
+				   "Certificate verification init failed");
+		result = VERIFY_ERR_CERT_VERIFY;
+		goto cleanup;
+	}
+
+	if (X509_verify_cert(ctx) != 1) {
+		set_errbuf(errbuf, errbuf_len,
+			   "Certificate verification failed: %s",
+			   X509_verify_cert_error_string(
+			       X509_STORE_CTX_get_error(ctx)));
+		result = VERIFY_ERR_CERT_VERIFY;
+		goto cleanup;
+	}
+
+cleanup:
+	if (ctx)
+		X509_STORE_CTX_free(ctx);
+	return result;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Extract the public key and friendly name from the signer certificate. */
+static verify_result_t
+load_public_key(X509 *cert, EVP_PKEY **out_key, int *out_key_type,
+		const char **out_key_name, char *key_name_buf,
+		size_t key_name_buf_len, char *errbuf, size_t errbuf_len) {
+	EVP_PKEY *pubkey = NULL;
+
+	if (!cert || !out_key || !out_key_type || !out_key_name)
+		return VERIFY_ERR_UNKNOWN;
+
+	pubkey = X509_get_pubkey(cert);
+	if (!pubkey) {
+		set_errbuf_openssl(
+		    errbuf, errbuf_len,
+		    "Failed to load public key from signer cert");
+		return VERIFY_ERR_LOAD_PUBKEY;
+	}
+
+	*out_key = pubkey;
+	*out_key_type = EVP_PKEY_base_id(pubkey);
+	*out_key_name = friendly_key_type_name(pubkey, key_name_buf,
+					       key_name_buf_len);
+	return VERIFY_OK;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Read a detached signature file with basic size sanity checks. */
+static verify_result_t read_signature_file(const char *sig_path,
+					   unsigned char **sigbuf,
+					   size_t *siglen, char *errbuf,
+					   size_t errbuf_len) {
+	FILE *fp = NULL;
+	unsigned char *buf = NULL;
+	long file_len = 0;
+	size_t len = 0;
+	size_t read_len;
+	verify_result_t result = VERIFY_ERR_READ_SIG;
+
+	if (!sig_path || !sigbuf || !siglen)
+		return VERIFY_ERR_UNKNOWN;
+
+	*sigbuf = NULL;
+	*siglen = 0;
+
+	fp = fopen(sig_path, "rb");
+	if (!fp) {
+		set_errbuf(errbuf, errbuf_len, "Signature read failed: open %s",
+			   sig_path);
+		return VERIFY_ERR_OPEN_FILE;
+	}
+
+	if (fseek(fp, 0, SEEK_END) != 0) {
+		set_errbuf(errbuf, errbuf_len,
+			   "Signature read failed: seek error for %s",
+			   sig_path);
+		goto cleanup;
+	}
+	file_len = ftell(fp);
+	if (file_len <= 0) {
+		set_errbuf(errbuf, errbuf_len,
+			   "Signature read failed: invalid length %ld for %s",
+			   file_len, sig_path);
+		goto cleanup;
+	}
+	if ((size_t)file_len > SIG_MAX_LEN) {
+		set_errbuf(
+		    errbuf, errbuf_len,
+		    "Signature read failed: length %ld exceeds max %u for %s",
+		    file_len, SIG_MAX_LEN, sig_path);
+		goto cleanup;
+	}
+	if (fseek(fp, 0, SEEK_SET) != 0) {
+		set_errbuf(errbuf, errbuf_len,
+			   "Signature read failed: rewind error for %s",
+			   sig_path);
+		goto cleanup;
+	}
+
+	len = (size_t)file_len;
+	buf = (unsigned char *)malloc(len);
+	if (!buf) {
+		result = VERIFY_ERR_MEM;
+		set_errbuf(errbuf, errbuf_len,
+			   "Out of memory reading signature (%zu bytes)", len);
+		goto cleanup;
+	}
+
+	read_len = fread(buf, 1, len, fp);
+	if (read_len != len) {
+		set_errbuf(errbuf, errbuf_len,
+			   "Signature read failed: short read %zu/%zu for %s",
+			   read_len, len, sig_path);
+		goto cleanup;
+	}
+
+	fclose(fp);
+	*sigbuf = buf;
+	*siglen = len;
+	return VERIFY_OK;
 
 cleanup:
 	if (fp)
 		fclose(fp);
 	if (buf) {
-		OPENSSL_cleanse(buf, (size_t)len);
+		OPENSSL_cleanse(buf, len);
 		free(buf);
 	}
-	return -1;
+	return result;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Verify an Ed25519 detached signature using one-shot EVP API. */
+static verify_result_t verify_ed25519_signature(
+    const char *data_path, EVP_PKEY *pubkey, const unsigned char *sigbuf,
+    size_t siglen, const char *key_name, char *errbuf, size_t errbuf_len) {
+	EVP_MD_CTX *mdctx = NULL;
+	unsigned char *data_buf = NULL;
+	size_t data_len = 0;
+	verify_result_t result = VERIFY_ERR_SIG_VERIFY;
+	int read_rc;
+
+	if (siglen != SIG_ED25519_LEN) {
+		set_errbuf(errbuf, errbuf_len,
+			   "Invalid Ed25519 signature length (key type %s, sig "
+			   "len %zu)",
+			   key_name, siglen);
+		return VERIFY_ERR_SIG_VERIFY;
+	}
+
+	read_rc = read_file_all(data_path, &data_buf, &data_len);
+	if (read_rc != READ_FILE_OK) {
+		if (read_rc == READ_FILE_OPEN) {
+			set_errbuf(errbuf, errbuf_len,
+				   "Failed to open data file: %s", data_path);
+			result = VERIFY_ERR_OPEN_FILE;
+		} else if (read_rc == READ_FILE_MEM) {
+			set_errbuf(errbuf, errbuf_len,
+				   "Out of memory reading data file");
+			result = VERIFY_ERR_MEM;
+		} else {
+			set_errbuf(
+			    errbuf, errbuf_len,
+			    "Failed to read data for signature verification");
+			result = VERIFY_ERR_HASH;
+		}
+		goto cleanup;
+	}
+
+	mdctx = EVP_MD_CTX_new();
+	if (!mdctx) {
+		set_errbuf(errbuf, errbuf_len,
+			   "Out of memory creating signature verify context");
+		result = VERIFY_ERR_MEM;
+		goto cleanup;
+	}
+	if (EVP_DigestVerifyInit(mdctx, NULL, NULL, NULL, pubkey) != 1) {
+		set_errbuf_openssl(errbuf, errbuf_len,
+				   "Signature verify init failed (key type %s)",
+				   key_name);
+		result = VERIFY_ERR_SIG_VERIFY;
+		goto cleanup;
+	}
+
+	if (EVP_DigestVerify(mdctx, sigbuf, siglen, data_buf, data_len) == 1) {
+		result = VERIFY_OK;
+	} else {
+		set_errbuf(
+		    errbuf, errbuf_len,
+		    "Signature verification failed (key type %s, sig len %zu)",
+		    key_name, siglen);
+		result = VERIFY_ERR_SIG_VERIFY;
+	}
+
+cleanup:
+	if (mdctx)
+		EVP_MD_CTX_free(mdctx);
+	if (data_buf) {
+		OPENSSL_cleanse(data_buf, data_len);
+		free(data_buf);
+	}
+	return result;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Verify RSA/ECDSA detached signature using streaming SHA-256. */
+static verify_result_t verify_rsa_ecdsa_signature(
+    const char *data_path, EVP_PKEY *pubkey, const unsigned char *sigbuf,
+    size_t siglen, const char *key_name, char *errbuf, size_t errbuf_len) {
+	EVP_MD_CTX *mdctx = NULL;
+	BIO *data_bio = NULL;
+	unsigned char buf[4096];
+	int readlen;
+	verify_result_t result = VERIFY_ERR_SIG_VERIFY;
+
+	data_bio = BIO_new_file(data_path, "rb");
+	if (!data_bio) {
+		set_errbuf(errbuf, errbuf_len, "Failed to open data file: %s",
+			   data_path);
+		return VERIFY_ERR_OPEN_FILE;
+	}
+
+	mdctx = EVP_MD_CTX_new();
+	if (!mdctx) {
+		set_errbuf(errbuf, errbuf_len,
+			   "Out of memory creating signature verify context");
+		result = VERIFY_ERR_MEM;
+		goto cleanup;
+	}
+	if (EVP_DigestVerifyInit(mdctx, NULL, EVP_sha256(), NULL, pubkey) !=
+	    1) {
+		set_errbuf_openssl(errbuf, errbuf_len,
+				   "Signature verify init failed (key type %s)",
+				   key_name);
+		result = VERIFY_ERR_SIG_VERIFY;
+		goto cleanup;
+	}
+
+	while ((readlen = BIO_read(data_bio, buf, sizeof(buf))) > 0) {
+		if (EVP_DigestVerifyUpdate(mdctx, buf, readlen) != 1) {
+			set_errbuf_openssl(
+			    errbuf, errbuf_len,
+			    "Signature hash update failed (key type %s)",
+			    key_name);
+			result = VERIFY_ERR_HASH;
+			goto cleanup;
+		}
+	}
+	if (readlen < 0) {
+		set_errbuf(errbuf, errbuf_len,
+			   "Failed to read data for signature verification "
+			   "(key type %s)",
+			   key_name);
+		result = VERIFY_ERR_HASH;
+		goto cleanup;
+	}
+
+	if (EVP_DigestVerifyFinal(mdctx, sigbuf, siglen) == 1) {
+		result = VERIFY_OK;
+	} else {
+		set_errbuf(
+		    errbuf, errbuf_len,
+		    "Signature verification failed (key type %s, sig len %zu)",
+		    key_name, siglen);
+		result = VERIFY_ERR_SIG_VERIFY;
+	}
+
+cleanup:
+	if (mdctx)
+		EVP_MD_CTX_free(mdctx);
+	if (data_bio)
+		BIO_free(data_bio);
+	return result;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -151,246 +592,87 @@ verify_result_t verify_signature_with_cert(const char *data_path,
 					   const char *cert_path,
 					   const char *ca_path, char *errbuf,
 					   size_t errbuf_len) {
-	FILE *fp = NULL;
 	X509 *signer_cert = NULL;
 	X509_STORE *store = NULL;
-	X509_STORE_CTX *ctx = NULL;
 	EVP_PKEY *pubkey = NULL;
-	EVP_MD_CTX *mdctx = NULL;
-	BIO *data_bio = NULL;
 	unsigned char *sigbuf = NULL;
-	unsigned char *data_buf = NULL;
-	long siglen = 0;
-	size_t data_len = 0;
+	size_t siglen = 0;
 	int key_type = NID_undef;
 	const char *key_name = "unknown";
 	const char *openssl_key_name = "unknown";
 	char key_name_buf[64];
 	verify_result_t result = VERIFY_ERR_UNKNOWN;
-	int read_rc;
-	struct stat st;
 
-	ERR_clear_error();
-	if (errbuf && errbuf_len)
-		errbuf[0] = '\0';
+	init_error_state(errbuf, errbuf_len);
 
-	// --- Load signer certificate ---
-	fp = fopen(cert_path, "rb");
-	if (!fp) {
-		result = VERIFY_ERR_OPEN_FILE;
-		goto cleanup;
-	}
-	signer_cert = PEM_read_X509(fp, NULL, NULL, NULL);
-	fclose(fp);
-	fp = NULL;
-	if (!signer_cert) {
-		result = VERIFY_ERR_LOAD_CERT;
-		goto cleanup;
+	if (!data_path || !sig_path || !cert_path || !ca_path) {
+		set_errbuf(
+		    errbuf, errbuf_len,
+		    "Invalid parameter: data, signature, cert, and CA paths "
+		    "must be non-NULL");
+		return VERIFY_ERR_UNKNOWN;
 	}
 
-	// --- Validate signer certificate against CA bundle ---
-	store = X509_STORE_new();
-	if (!store) {
-		result = VERIFY_ERR_MEM;
+	result = load_signer_cert(cert_path, &signer_cert, errbuf, errbuf_len);
+	if (result != VERIFY_OK)
 		goto cleanup;
-	}
-	if (stat(ca_path, &st) != 0) {
-		result = VERIFY_ERR_LOAD_CA;
-		goto cleanup;
-	}
-	if (S_ISDIR(st.st_mode)) {
-		if (X509_STORE_load_locations(store, NULL, ca_path) != 1) {
-			result = VERIFY_ERR_LOAD_CA;
-			goto cleanup;
-		}
-	} else if (X509_STORE_load_locations(store, ca_path, NULL) != 1) {
-		result = VERIFY_ERR_LOAD_CA;
-		goto cleanup;
-	}
-	ctx = X509_STORE_CTX_new();
-	if (!ctx) {
-		result = VERIFY_ERR_MEM;
-		goto cleanup;
-	}
-	if (X509_STORE_CTX_init(ctx, store, signer_cert, NULL) != 1) {
-		result = VERIFY_ERR_CERT_VERIFY;
-		goto cleanup;
-	}
-	if (X509_verify_cert(ctx) != 1) {
-		result = VERIFY_ERR_CERT_VERIFY;
-		if (errbuf)
-			snprintf(errbuf, errbuf_len,
-				 "Certificate verification failed: %s",
-				 X509_verify_cert_error_string(
-				     X509_STORE_CTX_get_error(ctx)));
-		goto cleanup;
-	}
 
-	// --- Extract public key from signer certificate ---
-	pubkey = X509_get_pubkey(signer_cert);
-	if (!pubkey) {
-		result = VERIFY_ERR_LOAD_PUBKEY;
+	result = load_ca_store(ca_path, &store, errbuf, errbuf_len);
+	if (result != VERIFY_OK)
 		goto cleanup;
-	}
-	key_type = EVP_PKEY_base_id(pubkey);
-	key_name = friendly_key_type_name(pubkey, key_name_buf,
-					  sizeof(key_name_buf));
+
+	result = verify_signer_cert(store, signer_cert, errbuf, errbuf_len);
+	if (result != VERIFY_OK)
+		goto cleanup;
+
+	result = load_public_key(signer_cert, &pubkey, &key_type, &key_name,
+				 key_name_buf, sizeof(key_name_buf), errbuf,
+				 errbuf_len);
+	if (result != VERIFY_OK)
+		goto cleanup;
+
 	openssl_key_name = OBJ_nid2sn(key_type);
 	if (!openssl_key_name)
 		openssl_key_name = "unknown";
 	LOG_INFO("Signer key type: %s", key_name);
 	LOG_DEBUG("Signer key type (OpenSSL): %s", openssl_key_name);
 
-	// --- Read signature file into buffer (detached signature) ---
-	fp = fopen(sig_path, "rb");
-	if (!fp) {
-		result = VERIFY_ERR_OPEN_FILE;
+	result = read_signature_file(sig_path, &sigbuf, &siglen, errbuf,
+				     errbuf_len);
+	if (result != VERIFY_OK)
 		goto cleanup;
-	}
-	if (fseek(fp, 0, SEEK_END) != 0) {
-		result = VERIFY_ERR_READ_SIG;
-		goto cleanup;
-	}
-	siglen = ftell(fp);
-	if (siglen <= 0) {
-		result = VERIFY_ERR_READ_SIG;
-		goto cleanup;
-	}
-	rewind(fp);
-
-	sigbuf = (unsigned char *)malloc(siglen);
-	if (!sigbuf) {
-		result = VERIFY_ERR_MEM;
-		goto cleanup;
-	}
-	if (fread(sigbuf, 1, siglen, fp) != (size_t)siglen) {
-		result = VERIFY_ERR_READ_SIG;
-		goto cleanup;
-	}
-	fclose(fp);
-	fp = NULL;
 
 	if (key_type == EVP_PKEY_ED25519) {
-		if (siglen != 64) {
-			result = VERIFY_ERR_SIG_VERIFY;
-			if (errbuf)
-				snprintf(errbuf, errbuf_len,
-					 "Invalid Ed25519 signature length "
-					 "(key type %s, sig len %ld)",
-					 key_name, siglen);
-			goto cleanup;
-		}
-
-		read_rc = read_file_all(data_path, &data_buf, &data_len);
-		if (read_rc != 1) {
-			result = (read_rc == -2)
-				     ? VERIFY_ERR_MEM
-				     : (read_rc == 0) ? VERIFY_ERR_OPEN_FILE
-						      : VERIFY_ERR_HASH;
-			goto cleanup;
-		}
-
-		mdctx = EVP_MD_CTX_new();
-		if (!mdctx) {
-			result = VERIFY_ERR_MEM;
-			goto cleanup;
-		}
-		if (EVP_DigestVerifyInit(mdctx, NULL, NULL, NULL, pubkey) !=
-		    1) {
-			result = VERIFY_ERR_SIG_VERIFY;
-			goto cleanup;
-		}
-
-		if (EVP_DigestVerify(mdctx, sigbuf, siglen, data_buf,
-				     data_len) == 1) {
-			result = VERIFY_OK;
-		} else {
-			result = VERIFY_ERR_SIG_VERIFY;
-			if (errbuf)
-				snprintf(errbuf, errbuf_len,
-					 "Signature verification failed "
-					 "(key type %s, sig len %ld)",
-					 key_name, siglen);
-		}
+		result = verify_ed25519_signature(data_path, pubkey, sigbuf,
+						  siglen, key_name, errbuf,
+						  errbuf_len);
 		goto cleanup;
 	}
 
 	if (key_type != EVP_PKEY_EC && key_type != EVP_PKEY_RSA) {
-		result = VERIFY_ERR_SIG_VERIFY;
-		if (errbuf)
-			snprintf(errbuf, errbuf_len,
-				 "Unsupported key type %s "
-				 "(sig len %ld)",
-				 key_name, siglen);
-		goto cleanup;
-	}
-
-	data_bio = BIO_new_file(data_path, "rb");
-	if (!data_bio) {
-		result = VERIFY_ERR_OPEN_FILE;
-		goto cleanup;
-	}
-
-	mdctx = EVP_MD_CTX_new();
-	if (!mdctx) {
-		result = VERIFY_ERR_MEM;
-		goto cleanup;
-	}
-	if (EVP_DigestVerifyInit(mdctx, NULL, EVP_sha256(), NULL, pubkey) !=
-	    1) {
+		set_errbuf(errbuf, errbuf_len,
+			   "Unsupported key type %s (sig len %zu)", key_name,
+			   siglen);
 		result = VERIFY_ERR_SIG_VERIFY;
 		goto cleanup;
 	}
 
-	char buf[4096];
-	int readlen;
-	while ((readlen = BIO_read(data_bio, buf, sizeof(buf))) > 0) {
-		if (EVP_DigestVerifyUpdate(mdctx, buf, readlen) != 1) {
-			result = VERIFY_ERR_HASH;
-			goto cleanup;
-		}
-	}
-	if (readlen < 0) {
-		result = VERIFY_ERR_HASH;
-		goto cleanup;
-	}
-
-	if (EVP_DigestVerifyFinal(mdctx, sigbuf, siglen) == 1) {
-		result = VERIFY_OK;
-	} else {
-		result = VERIFY_ERR_SIG_VERIFY;
-		if (errbuf)
-			snprintf(errbuf, errbuf_len,
-				 "Signature verification failed "
-				 "(key type %s, sig len %ld)",
-				 key_name, siglen);
-	}
+	result = verify_rsa_ecdsa_signature(data_path, pubkey, sigbuf, siglen,
+					    key_name, errbuf, errbuf_len);
 
 cleanup:
 	if (sigbuf) {
 		OPENSSL_cleanse(sigbuf, siglen);
 		free(sigbuf);
 	}
-	if (data_buf) {
-		OPENSSL_cleanse(data_buf, data_len);
-		free(data_buf);
-	}
-	if (fp)
-		fclose(fp);
-	if (mdctx)
-		EVP_MD_CTX_free(mdctx);
-	if (data_bio)
-		BIO_free(data_bio);
 	if (pubkey)
 		EVP_PKEY_free(pubkey);
-	if (ctx)
-		X509_STORE_CTX_free(ctx);
 	if (store)
 		X509_STORE_free(store);
 	if (signer_cert)
 		X509_free(signer_cert);
 
-	if (result != VERIFY_OK && errbuf && !errbuf[0])
+	if (result != VERIFY_OK && errbuf && errbuf_len > 0 && !errbuf[0])
 		format_openssl_errors(errbuf, errbuf_len);
 
 	return result;

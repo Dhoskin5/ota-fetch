@@ -46,23 +46,29 @@ typedef enum {
 /**
  * @brief Verify a detached signature using a signer certificate and CA chain.
  *
- * Checks that the detached signature for @p data_path is valid using
- * the public key from @p cert_path, and that the signer cert chains
- * to a trusted root CA in @p ca_path. Writes a human-readable error
- * message to @p errbuf if provided.
+ * Verifies that the detached signature in @p sig_path matches @p data_path
+ * using the public key from @p cert_path, and that the signer certificate
+ * chains to a trusted root CA in @p ca_path. The CA path may reference a
+ * PEM bundle file or a directory of hashed CA certificates.
+ *
+ * Supported key types: Ed25519 (64-byte signature), ECDSA (SHA-256), RSA
+ * (SHA-256). The signature file is expected to contain raw signature bytes.
  *
  * @param data_path   Path to the original data file (e.g. manifest.json).
  * @param sig_path    Path to the detached signature file (e.g.
  * manifest.json.sig).
  * @param cert_path   Path to PEM-encoded signer certificate (e.g.
  * manifest.crt).
- * @param ca_path     Path to trusted root CA bundle (PEM).
- * @param errbuf      Buffer for human-readable error message (may be NULL).
+ * @param ca_path     Path to trusted root CA bundle file or directory (PEM).
+ * @param errbuf      Buffer for human-readable error message (may be NULL). If
+ *                    provided with non-zero length, it is cleared on entry and
+ *                    populated on failure (best effort). If no specific
+ *                    message is set, an OpenSSL error summary may be used.
  * @param errbuf_len  Size of @p errbuf, including null terminator.
  * @return VERIFY_OK (0) if signature is valid and cert chains to CA; otherwise,
  * error code.
  *
- * @note Uses OpenSSL (libcrypto, libssl) APIs internally.
+ * @note Uses OpenSSL libcrypto APIs internally.
  */
 verify_result_t verify_signature_with_cert(const char *data_path,
 					   const char *sig_path,
