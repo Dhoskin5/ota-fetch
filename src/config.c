@@ -42,6 +42,10 @@ int config_handler(void *user, const char *section, const char *name,
 		cfg->connect_timeout = atoi(value);
 	} else if (MATCH("network", "transfer_timeout")) {
 		cfg->transfer_timeout = atoi(value);
+	} else if (MATCH("network", "low_speed_limit")) {
+		cfg->low_speed_limit = atoi(value);
+	} else if (MATCH("network", "low_speed_time")) {
+		cfg->low_speed_time = atoi(value);
 	} else if (MATCH("network", "retry_attempts")) {
 		cfg->retry_attempts = atoi(value);
 	} else if (MATCH("system", "update_interval_sec")) {
@@ -116,6 +120,8 @@ void config_print(const struct ota_config *config) {
 	       config->client_key ? config->client_key : "(null)");
 	printf("connect_timeout     = %d\n", config->connect_timeout);
 	printf("transfer_timeout    = %d\n", config->transfer_timeout);
+	printf("low_speed_limit     = %d\n", config->low_speed_limit);
+	printf("low_speed_time      = %d\n", config->low_speed_time);
 	printf("retry_attempts      = %d\n", config->retry_attempts);
 	printf("update_interval_sec = %d\n", config->update_interval_sec);
 	printf("inbox_manifest_dir  = %s\n",

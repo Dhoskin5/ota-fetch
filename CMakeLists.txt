@@ -24,6 +24,7 @@ add_executable(ota-fetch
     src/manifest.c
     src/verify_libcrypto.c
     src/hash.c
+    src/logging.c
 )
 
 # Include directories
@@ -47,4 +48,3 @@ target_link_libraries(ota-fetch PRIVATE
     ${CJSON_LIBRARY}
     ${OPENSSL_LIBRARIES}
 )
-

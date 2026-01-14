@@ -17,10 +17,20 @@ CA_CERT = TEST_ROOT / "private/rootCA.crt"
 SERVER_CERT = TEST_ROOT / "server/server.crt"
 SERVER_KEY = TEST_ROOT / "server/server.key"
 
-handler = http.server.SimpleHTTPRequestHandler
-handler.directory = str(SERVER_ROOT)
+def env_truthy(name):
+    value = os.getenv(name, "")
+    return value.lower() in ("1", "true", "yes", "on")
 
-httpd = http.server.HTTPServer(('127.0.0.1', PORT), http.server.SimpleHTTPRequestHandler)
+ENABLE_HTTP_LOG = env_truthy("OTA_FETCH_HTTP_LOG")
+
+
+class TestHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, format, *args):
+        if not ENABLE_HTTP_LOG:
+            return
+        super().log_message(format, *args)
+
+httpd = http.server.HTTPServer(('127.0.0.1', PORT), TestHTTPRequestHandler)
 
 context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
 context.verify_mode = ssl.CERT_REQUIRED

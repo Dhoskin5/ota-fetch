@@ -156,7 +156,8 @@ Key behavior:
   retry delay is 5 seconds between attempts.
 - `update_interval_sec` is used only in daemon mode (0 uses the built-in
   3600-second default).
-- `log_file` redirects stderr to a file if set; logs otherwise go to stderr.
+- `log_file` is optional; logs always go to stderr and are also appended to the
+  file when set.
 
 ## Usage
 

@@ -43,6 +43,10 @@ struct ota_config {
 	int connect_timeout;
 	/**< HTTP(S) transfer timeout, in seconds */
 	int transfer_timeout;
+	/**< Low speed limit (bytes/sec) before aborting (0 disables) */
+	int low_speed_limit;
+	/**< Low speed time (seconds) before aborting (0 disables) */
+	int low_speed_time;
 	/**< Number of download retry attempts on failure */
 	int retry_attempts;
 	/**< Daemon update interval, in seconds (0 uses default) */
@@ -53,7 +57,7 @@ struct ota_config {
 	char *current_manifest_dir;
 	/**< Path to root CA cert for manifest signature validation */
 	char *root_ca_path;
-	/**< Path to log file (or NULL for stderr) */
+	/**< Optional log file path (logs always go to stderr) */
 	char *log_file;
 	/**< Device ID for release */
 	char *device_id;

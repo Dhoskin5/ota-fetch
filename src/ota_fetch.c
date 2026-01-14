@@ -268,9 +268,12 @@ static int fetch_file(const char *url, const char *dest_path,
 	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, cfg->connect_timeout);
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, cfg->transfer_timeout);
 
-	// TODO:
-	// curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, cfg->);
-	// curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME,  cfg->);
+	if (cfg->low_speed_limit > 0 && cfg->low_speed_time > 0) {
+		curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT,
+				 (long)cfg->low_speed_limit);
+		curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME,
+				 (long)cfg->low_speed_time);
+	}
 
 	// mTLS setup
 	curl_easy_setopt(curl, CURLOPT_SSLCERT, cfg->client_cert);

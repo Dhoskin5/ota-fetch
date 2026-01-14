@@ -11,13 +11,12 @@
  */
 
 #include "config.h"
+#include "logging.h"
 #include "manifest.h"
 #include "ota_fetch.h"
-#include <errno.h>
 #include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 
 /**
@@ -35,29 +34,6 @@ enum run_mode {
  */
 void print_usage(const char *progname) {
 	printf("Usage: %s [--daemon] [--oneshot] [--config=PATH]\n", progname);
-}
-
-static int redirect_stderr_to_log(const char *path) {
-	if (!path || path[0] == '\0')
-		return 0;
-
-	FILE *fp = fopen(path, "a");
-	if (!fp) {
-		fprintf(stderr, "Warning: Failed to open log_file %s: %s\n",
-			path, strerror(errno));
-		return -1;
-	}
-
-	if (dup2(fileno(fp), STDERR_FILENO) < 0) {
-		fprintf(stderr,
-			"Warning: Failed to redirect stderr to %s: %s\n",
-			path, strerror(errno));
-		fclose(fp);
-		return -1;
-	}
-	fclose(fp);
-	setvbuf(stderr, NULL, _IOLBF, 0);
-	return 0;
 }
 
 /**
@@ -115,11 +91,12 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	redirect_stderr_to_log(config.log_file);
+	log_set_file(config.log_file);
 	config_print(&config);
 
 	int rc = ota_fetch_run(mode == MODE_DAEMON, &config);
 
 	config_free(&config);
+	log_close();
 	return rc;
 }

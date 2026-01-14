@@ -104,8 +104,8 @@ static inline const char *basename_c(const char *path) {
  * @def LOG(level, fmt, ...)
  * @brief Core logging macro for custom log levels.
  *
- * Prints standardized log output to stderr with source file, line, and
- * function.
+ * Prints standardized log output to stderr and an optional log file with
+ * source file, line, and function.
  *
  * Example:
  *   LOG(LOG_LEVEL_INFO, "Initialization complete: status=%d", status);
@@ -114,12 +114,16 @@ static inline const char *basename_c(const char *path) {
  * @param fmt   printf-style format string.
  * @param ...   Additional arguments for format string.
  */
+void log_write(int level, const char *file, int line, const char *func,
+	       const char *fmt, ...);
+int log_set_file(const char *path);
+void log_close(void);
+
 #define LOG(level, fmt, ...)                                                   \
 	do {                                                                   \
 		if ((level) <= LOG_LEVEL) {                                    \
-			fprintf(stderr, "[%s] %s:%d:%s(): " fmt "\n",          \
-				log_level_str(level), basename_c(__FILE__),    \
-				__LINE__, __func__, ##__VA_ARGS__);            \
+			log_write((level), __FILE__, __LINE__, __func__,       \
+				  fmt, ##__VA_ARGS__);                       \
 		}                                                              \
 	} while (0)
 
