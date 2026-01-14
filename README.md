@@ -1,6 +1,6 @@
 # ota-fetch
 
-[![CI](https://github.com/Dhoskin5/ota-fetch/actions/workflows/ci.yml/badge.svg)](https://github.com/Dhoskin5/ota-fetch/actions/workflows/ci.yml)
+[![CI](https://github.com/kernelforge-io/ota-fetch/actions/workflows/ci.yml/badge.svg)](https://github.com/kernelforge-io/ota-fetch/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A lightweight C utility to fetch and verify OTA updates on embedded Linux.
@@ -26,17 +26,21 @@ High-level flow (mirrors current code paths):
 flowchart TD
   A[ota-fetch CLI] --> B[Load config]
   B --> C{Loop}
-  C --> D[Fetch manifest.json + manifest.json.sig + signer.crt]
+  C --> D[Fetch manifest.json, manifest.json.sig, signer.crt]
   D --> E[Verify signer cert with root CA]
   E --> F[Verify manifest signature]
   F --> G{Manifest changed?}
-  G -- No --> H[Exit (oneshot) or sleep (daemon)]
-  G -- Yes --> I[Parse manifest + select release by device_id]
+
+  G -->|No| H["Exit (oneshot) or sleep (daemon)"]
+  H -->|daemon tick| C
+  G -->|Yes| I[Parse manifest + select release by device_id]
+
   I --> J[Download payload file]
   J --> K[SHA-256 verify payload]
   K --> L{file_type}
-  L -- rauc_bundle_test --> M[Mark manifest current]
-  L -- rauc_bundle --> N[rauc install <bundle>]
+
+  L -->|rauc_bundle_test| M[Mark manifest current]
+  L -->|rauc_bundle| N["rauc install bundle"]
   N --> O[Mark manifest current + reboot]
 ```
 
