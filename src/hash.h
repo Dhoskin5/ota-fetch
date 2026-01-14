@@ -37,9 +37,9 @@ typedef enum {
 	SHA256SUM_EOPEN = -1, /**< Failed to open file (errno set by fopen()) */
 	SHA256SUM_EREAD = -2, /**< I/O error reading file (ferror() true) */
 	SHA256SUM_EINVAL = -3,	/**< Invalid argument */
-	SHA256SUM_EINIT = -4,	/**< SHA256_Init() failed */
-	SHA256SUM_EUPDATE = -5, /**< SHA256_Update() failed */
-	SHA256SUM_EFINAL = -6,	/**< SHA256_Final() failed */
+	SHA256SUM_EINIT = -4,	/**< EVP_DigestInit_ex() failed */
+	SHA256SUM_EUPDATE = -5, /**< EVP_DigestUpdate() failed */
+	SHA256SUM_EFINAL = -6,	/**< EVP_DigestFinal_ex() failed */
 } sha256sum_rc_t;
 
 /**

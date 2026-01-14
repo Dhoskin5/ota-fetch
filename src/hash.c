@@ -4,45 +4,94 @@
  */
 
 #include "hash.h"
+#include "logging.h"
 
-#include <openssl/sha.h>
+#include <errno.h>
+#include <openssl/err.h>
+#include <openssl/evp.h>
 #include <stdio.h>
+#include <string.h>
+
+static void log_openssl_error(const char *context) {
+	unsigned long err;
+	char msg[160];
+
+	err = ERR_get_error();
+	if (err == 0) {
+		LOG_ERROR("%s", context);
+		return;
+	}
+
+	ERR_error_string_n(err, msg, sizeof(msg));
+	LOG_ERROR("%s: %s", context, msg);
+	while ((err = ERR_get_error()) != 0) {
+		ERR_error_string_n(err, msg, sizeof(msg));
+		LOG_ERROR("%s: %s", context, msg);
+	}
+}
 
 /* ------------------------------------------------------------------------ */
 int sha256sum_file(const char *path, uint8_t *digest_out) {
+	EVP_MD_CTX *ctx = NULL;
+	FILE *fp = NULL;
+	unsigned char buf[4096];
+	unsigned int digest_len = 0;
+	size_t n;
+	int rc = SHA256SUM_OK;
+
 	if (!path || !digest_out)
 		return SHA256SUM_EINVAL;
 
-	FILE *fp = fopen(path, "rb");
-	if (!fp)
+	fp = fopen(path, "rb");
+	if (!fp) {
+		LOG_ERROR("Failed to open %s: %s", path, strerror(errno));
 		return SHA256SUM_EOPEN;
-
-	SHA256_CTX ctx;
-	if (SHA256_Init(&ctx) != 1) {
-		fclose(fp);
-		return SHA256SUM_EINIT;
 	}
 
-	unsigned char buf[4096];
-	size_t n;
+	ERR_clear_error();
+	ctx = EVP_MD_CTX_new();
+	if (!ctx) {
+		log_openssl_error("EVP_MD_CTX_new failed");
+		rc = SHA256SUM_EINIT;
+		goto cleanup;
+	}
+
+	if (EVP_DigestInit_ex(ctx, EVP_sha256(), NULL) != 1) {
+		log_openssl_error("EVP_DigestInit_ex failed");
+		rc = SHA256SUM_EINIT;
+		goto cleanup;
+	}
+
 	while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
-		if (SHA256_Update(&ctx, buf, n) != 1) {
-			fclose(fp);
-			return SHA256SUM_EUPDATE;
+		if (EVP_DigestUpdate(ctx, buf, n) != 1) {
+			log_openssl_error("EVP_DigestUpdate failed");
+			rc = SHA256SUM_EUPDATE;
+			goto cleanup;
 		}
 	}
 
 	if (ferror(fp)) {
-		fclose(fp);
-		return SHA256SUM_EREAD;
+		LOG_ERROR("Failed to read %s: %s", path, strerror(errno));
+		rc = SHA256SUM_EREAD;
+		goto cleanup;
 	}
 
-	fclose(fp);
+	if (EVP_DigestFinal_ex(ctx, digest_out, &digest_len) != 1) {
+		log_openssl_error("EVP_DigestFinal_ex failed");
+		rc = SHA256SUM_EFINAL;
+		goto cleanup;
+	}
+	if (digest_len != SHA256_DIGEST_LEN) {
+		LOG_ERROR("Unexpected SHA-256 length %u", digest_len);
+		rc = SHA256SUM_EFINAL;
+		goto cleanup;
+	}
 
-	if (SHA256_Final(digest_out, &ctx) != 1)
-		return SHA256SUM_EFINAL;
-
-	return SHA256SUM_OK;
+cleanup:
+	EVP_MD_CTX_free(ctx);
+	if (fp)
+		fclose(fp);
+	return rc;
 }
 
 /* ------------------------------------------------------------------------ */

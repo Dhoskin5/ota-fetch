@@ -25,7 +25,6 @@
 #include <dirent.h>
 #include <errno.h>
 #include <limits.h>
-#include <openssl/sha.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -197,7 +196,8 @@ static int mkdir_p(const char *path, mode_t mode) {
  * @return FILES_EQ if equal, FILES_NEQ if not, FILES_ERR on error.
  */
 static files_equal_result_t files_equal(const char *path1, const char *path2) {
-	uint8_t hash1[32], hash2[32];
+	uint8_t hash1[SHA256_DIGEST_LEN];
+	uint8_t hash2[SHA256_DIGEST_LEN];
 	int irethash1;
 	int irethash2;
 
@@ -223,7 +223,8 @@ static files_equal_result_t files_equal(const char *path1, const char *path2) {
 	LOG_INFO("file2 =%s, hash2 =%s, ret =%d", path2, sha256_hex(hash2),
 		 irethash2);
 
-	return (memcmp(hash1, hash2, 32) == 0) ? FILES_EQ : FILES_NEQ;
+	return (memcmp(hash1, hash2, SHA256_DIGEST_LEN) == 0) ? FILES_EQ
+							      : FILES_NEQ;
 }
 
 /**
@@ -695,29 +696,21 @@ static int validate_release(ota_ctx_t *ctx) {
 		return -1;
 	}
 
-	FILE *fp = fopen(ctx->payload_path, "rb");
-	if (!fp) {
-		LOG_ERROR("Failed to open payload for hashing: %s",
-			  ctx->payload_path);
+	uint8_t hash[SHA256_DIGEST_LEN];
+	char hash_string[SHA256_DIGEST_LEN * 2 + 1];
+	int rc;
+
+	rc = sha256sum_file(ctx->payload_path, hash);
+	if (rc != SHA256SUM_OK) {
+		LOG_ERROR("Failed to hash payload %s: %d", ctx->payload_path,
+			  rc);
 		return -1;
 	}
-	unsigned char hash[SHA256_DIGEST_LENGTH];
-	char hash_string[SHA256_DIGEST_LENGTH * 2 + 1];
-	hash_string[sizeof(hash_string) - 1] = '\0';
 
-	SHA256_CTX sha256;
-	SHA256_Init(&sha256);
-
-	unsigned char buf[4096];
-	size_t read_len;
-	while ((read_len = fread(buf, 1, sizeof(buf), fp)) > 0) {
-		SHA256_Update(&sha256, buf, read_len);
-	}
-	fclose(fp);
-	SHA256_Final(hash, &sha256);
-
-	for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
-		snprintf(&hash_string[i * 2], 3, "%02x", hash[i]);
+	if (hex_encode(hash_string, sizeof(hash_string), hash,
+		       SHA256_DIGEST_LEN) != 0) {
+		LOG_ERROR("Failed to format payload SHA256");
+		return -1;
 	}
 
 	if (strcmp(hash_string, ctx->release->files[0].sha256) != 0) {

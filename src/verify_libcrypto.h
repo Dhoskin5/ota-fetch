@@ -46,6 +46,7 @@ typedef enum {
 	VERIFY_ERR_MEM,		/**< Out of memory */
 	VERIFY_ERR_SIG_VERIFY,	/**< Signature verification failed */
 	VERIFY_ERR_HASH,	/**< Failed to compute hash */
+	VERIFY_ERR_READ_DATA,	/**< Failed to read data file */
 	VERIFY_ERR_UNKNOWN	/**< Unknown/internal error */
 } verify_result_t;
 

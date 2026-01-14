@@ -17,6 +17,9 @@
 #include <openssl/pem.h>
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#include <openssl/core_names.h>
+#endif
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,6 +30,7 @@
 
 #define SIG_MAX_LEN (16u * 1024u)
 #define SIG_ED25519_LEN 64u
+#define MANIFEST_MAX_LEN (1024u * 1024u)
 
 /* ------------------------------------------------------------------------ */
 /* Format OpenSSL error stack into a single string (best effort). */
@@ -109,11 +113,7 @@ static void set_errbuf_openssl(char *errbuf, size_t errbuf_len, const char *fmt,
 /* Provide a user-friendly key type label for logs and errors. */
 static const char *friendly_key_type_name(EVP_PKEY *pkey, char *tmp,
 					  size_t tmp_len) {
-	const EC_KEY *ec_key = NULL;
-	const EC_GROUP *ec_group = NULL;
-	const char *curve_name = NULL;
 	int key_type;
-	int curve_nid;
 	int written;
 
 	if (!pkey)
@@ -124,25 +124,65 @@ static const char *friendly_key_type_name(EVP_PKEY *pkey, char *tmp,
 	case EVP_PKEY_ED25519:
 		return "Ed25519";
 	case EVP_PKEY_EC:
-		ec_key = EVP_PKEY_get0_EC_KEY(pkey);
-		if (!ec_key)
-			return "ECDSA";
-		ec_group = EC_KEY_get0_group(ec_key);
-		if (!ec_group)
-			return "ECDSA";
-		curve_nid = EC_GROUP_get_curve_name(ec_group);
-		if (curve_nid == NID_undef)
-			return "ECDSA";
-		if (curve_nid == NID_X9_62_prime256v1)
-			curve_name = "P-256";
-		else
-			curve_name = OBJ_nid2sn(curve_nid);
-		if (!curve_name || !tmp || tmp_len == 0)
-			return "ECDSA";
-		written = snprintf(tmp, tmp_len, "ECDSA %s", curve_name);
-		if (written < 0 || (size_t)written >= tmp_len)
-			return "ECDSA";
-		return tmp;
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+		{
+			char group_name[80];
+			size_t group_len = 0;
+			const char *curve_name = NULL;
+
+			if (EVP_PKEY_get_utf8_string_param(
+				pkey, OSSL_PKEY_PARAM_GROUP_NAME,
+				group_name, sizeof(group_name),
+				&group_len) != 1)
+				return "ECDSA";
+
+			if (group_len >= sizeof(group_name))
+				group_name[sizeof(group_name) - 1] = '\0';
+			else
+				group_name[group_len] = '\0';
+
+			curve_name = group_name;
+			if (strcmp(group_name, "prime256v1") == 0 ||
+			    strcmp(group_name, "secp256r1") == 0)
+				curve_name = "P-256";
+
+			if (!curve_name || !tmp || tmp_len == 0)
+				return "ECDSA";
+			written = snprintf(tmp, tmp_len, "ECDSA %s",
+					   curve_name);
+			if (written < 0 || (size_t)written >= tmp_len)
+				return "ECDSA";
+			return tmp;
+		}
+#else
+		{
+			const EC_KEY *ec_key = NULL;
+			const EC_GROUP *ec_group = NULL;
+			const char *curve_name = NULL;
+			int curve_nid;
+
+			ec_key = EVP_PKEY_get0_EC_KEY(pkey);
+			if (!ec_key)
+				return "ECDSA";
+			ec_group = EC_KEY_get0_group(ec_key);
+			if (!ec_group)
+				return "ECDSA";
+			curve_nid = EC_GROUP_get_curve_name(ec_group);
+			if (curve_nid == NID_undef)
+				return "ECDSA";
+			if (curve_nid == NID_X9_62_prime256v1)
+				curve_name = "P-256";
+			else
+				curve_name = OBJ_nid2sn(curve_nid);
+			if (!curve_name || !tmp || tmp_len == 0)
+				return "ECDSA";
+			written = snprintf(tmp, tmp_len, "ECDSA %s",
+					   curve_name);
+			if (written < 0 || (size_t)written >= tmp_len)
+				return "ECDSA";
+			return tmp;
+		}
+#endif
 	case EVP_PKEY_RSA:
 		return "RSA";
 	default:
@@ -154,7 +194,8 @@ enum read_file_status {
 	READ_FILE_OK = 1,
 	READ_FILE_OPEN = 0,
 	READ_FILE_READ = -1,
-	READ_FILE_MEM = -2
+	READ_FILE_MEM = -2,
+	READ_FILE_TOO_LARGE = -3
 };
 
 /* ------------------------------------------------------------------------ */
@@ -182,6 +223,11 @@ static int read_file_all(const char *path, unsigned char **out,
 	file_len = ftell(fp);
 	if (file_len < 0)
 		goto read_fail;
+	if (file_len > (long)MANIFEST_MAX_LEN) {
+		*out_len = (size_t)file_len;
+		fclose(fp);
+		return READ_FILE_TOO_LARGE;
+	}
 	if (fseek(fp, 0, SEEK_SET) != 0)
 		goto read_fail;
 
@@ -367,7 +413,8 @@ load_public_key(X509 *cert, EVP_PKEY **out_key, int *out_key_type,
 }
 
 /* ------------------------------------------------------------------------ */
-/* Read a detached signature file with basic size sanity checks. */
+/* Read a detached signature file with basic size sanity checks.
+ * Signature file is expected to contain raw signature bytes. */
 static verify_result_t read_signature_file(const char *sig_path,
 					   unsigned char **sigbuf,
 					   size_t *siglen, char *errbuf,
@@ -480,11 +527,16 @@ static verify_result_t verify_ed25519_signature(
 			set_errbuf(errbuf, errbuf_len,
 				   "Out of memory reading data file");
 			result = VERIFY_ERR_MEM;
+		} else if (read_rc == READ_FILE_TOO_LARGE) {
+			set_errbuf(errbuf, errbuf_len,
+				   "Data file too large: %s (%zu bytes)",
+				   data_path, data_len);
+			result = VERIFY_ERR_READ_DATA;
 		} else {
 			set_errbuf(
 			    errbuf, errbuf_len,
 			    "Failed to read data for signature verification");
-			result = VERIFY_ERR_HASH;
+			result = VERIFY_ERR_READ_DATA;
 		}
 		goto cleanup;
 	}
@@ -504,13 +556,20 @@ static verify_result_t verify_ed25519_signature(
 		goto cleanup;
 	}
 
-	if (EVP_DigestVerify(mdctx, sigbuf, siglen, data_buf, data_len) == 1) {
+	int verify_rc =
+	    EVP_DigestVerify(mdctx, sigbuf, siglen, data_buf, data_len);
+	if (verify_rc == 1) {
 		result = VERIFY_OK;
-	} else {
+	} else if (verify_rc == 0) {
 		set_errbuf(
 		    errbuf, errbuf_len,
-		    "Signature verification failed (key type %s, sig len %zu)",
-		    key_name, siglen);
+		    "Signature invalid (key type %s, sig len %zu)", key_name,
+		    siglen);
+		result = VERIFY_ERR_SIG_VERIFY;
+	} else {
+		set_errbuf_openssl(
+		    errbuf, errbuf_len,
+		    "Signature verification error (key type %s)", key_name);
 		result = VERIFY_ERR_SIG_VERIFY;
 	}
 
@@ -577,13 +636,19 @@ static verify_result_t verify_rsa_ecdsa_signature(
 		goto cleanup;
 	}
 
-	if (EVP_DigestVerifyFinal(mdctx, sigbuf, siglen) == 1) {
+	int verify_rc = EVP_DigestVerifyFinal(mdctx, sigbuf, siglen);
+	if (verify_rc == 1) {
 		result = VERIFY_OK;
-	} else {
+	} else if (verify_rc == 0) {
 		set_errbuf(
 		    errbuf, errbuf_len,
-		    "Signature verification failed (key type %s, sig len %zu)",
-		    key_name, siglen);
+		    "Signature invalid (key type %s, sig len %zu)", key_name,
+		    siglen);
+		result = VERIFY_ERR_SIG_VERIFY;
+	} else {
+		set_errbuf_openssl(
+		    errbuf, errbuf_len,
+		    "Signature verification error (key type %s)", key_name);
 		result = VERIFY_ERR_SIG_VERIFY;
 	}
 
