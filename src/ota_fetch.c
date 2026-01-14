@@ -22,18 +22,22 @@
 #include "manifest.h"
 #include "verify_libcrypto.h"
 #include <curl/curl.h>
+#include <dirent.h>
 #include <errno.h>
+#include <limits.h>
 #include <openssl/sha.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/reboot.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 /**
  * @def FETCH_INTERVAL_SEC
- * @brief Number of seconds between update checks in daemon mode.
+ * @brief Default number of seconds between update checks in daemon mode.
  */
 #define FETCH_INTERVAL_SEC 3600
 
@@ -59,6 +63,13 @@ typedef struct ota_ctx {
 	char *payload_path;
 	manifest_release_t *release;
 } ota_ctx_t;
+
+static volatile sig_atomic_t g_terminate = 0;
+
+static void handle_termination_signal(int sig) {
+	(void)sig;
+	g_terminate = 1;
+}
 
 /**
  * @brief In-memory data buffer for HTTP(S) downloads.
@@ -185,7 +196,7 @@ static int mkdir_p(const char *path, mode_t mode) {
  * @param path2 Second file path.
  * @return FILES_EQ if equal, FILES_NEQ if not, FILES_ERR on error.
  */
-static int files_equal(const char *path1, const char *path2) {
+static files_equal_result_t files_equal(const char *path1, const char *path2) {
 	uint8_t hash1[32], hash2[32];
 	int irethash1;
 	int irethash2;
@@ -227,23 +238,27 @@ static int file_exists(const char *path) {
  */
 static int fetch_file(const char *url, const char *dest_path,
 		      const struct ota_config *cfg) {
+	int rc = -1;
+	long http_code = 0;
 	CURL *curl = curl_easy_init();
+	char *tmp_path = NULL;
+	struct memory_buffer buf = {0};
+
 	if (!curl) {
 		LOG_ERROR("Failed to initialize libcurl");
 		return -1;
 	}
 
-	struct memory_buffer buf = {0};
-
 	curl_easy_setopt(curl, CURLOPT_URL, url);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
 
 	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, cfg->connect_timeout);
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, cfg->transfer_timeout);
 
-	//TODO:
+	// TODO:
 	// curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, cfg->);
 	// curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME,  cfg->);
 
@@ -253,25 +268,32 @@ static int fetch_file(const char *url, const char *dest_path,
 	curl_easy_setopt(curl, CURLOPT_CAINFO, cfg->ca_cert);
 
 	CURLcode res = curl_easy_perform(curl);
+	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
 	if (res != CURLE_OK) {
-		LOG_ERROR("curl error fetching %s: %s", url,
-			  curl_easy_strerror(res));
+		if (http_code >= 400) {
+			LOG_ERROR("HTTP error fetching %s: %ld", url,
+				  http_code);
+		} else {
+			LOG_ERROR("curl error fetching %s: %s", url,
+				  curl_easy_strerror(res));
+		}
 
 		long verify_result = 0;
 		curl_easy_getinfo(curl, CURLINFO_SSL_VERIFYRESULT,
 				  &verify_result);
 		LOG_ERROR("SSL verify result: %ld", verify_result);
-
-		curl_easy_cleanup(curl);
-		free(buf.data);
-		return -1;
+		goto cleanup;
 	}
 
-	curl_easy_cleanup(curl);
+	if (http_code < 200 || http_code >= 300) {
+		LOG_ERROR("HTTP error fetching %s: %ld", url, http_code);
+		goto cleanup;
+	}
 
 	// Ensure directory exists
 	char dir[PATH_MAX];
 	strncpy(dir, dest_path, sizeof(dir));
+	dir[sizeof(dir) - 1] = '\0';
 	char *slash = strrchr(dir, '/');
 	if (slash) {
 		*slash = '\0';
@@ -281,18 +303,44 @@ static int fetch_file(const char *url, const char *dest_path,
 		}
 	}
 
-	FILE *fp = fopen(dest_path, "wb");
-	if (!fp) {
-		LOG_ERROR("Failed to write %s: %s", dest_path, strerror(errno));
-		free(buf.data);
-		return -1;
+	size_t tmp_len = strlen(dest_path) + 5;
+	tmp_path = malloc(tmp_len);
+	if (!tmp_path) {
+		LOG_ERROR("Failed to allocate temp path");
+		goto cleanup;
 	}
-	fwrite(buf.data, 1, buf.size, fp);
+	snprintf(tmp_path, tmp_len, "%s.tmp", dest_path);
+
+	FILE *fp = fopen(tmp_path, "wb");
+	if (!fp) {
+		LOG_ERROR("Failed to write %s: %s", tmp_path, strerror(errno));
+		goto cleanup;
+	}
+
+	if (fwrite(buf.data, 1, buf.size, fp) != buf.size) {
+		LOG_ERROR("Short write to %s: %s", tmp_path, strerror(errno));
+		fclose(fp);
+		goto cleanup;
+	}
 	fclose(fp);
-	free(buf.data);
+
+	if (rename(tmp_path, dest_path) != 0) {
+		LOG_ERROR("Failed to move %s to %s: %s", tmp_path, dest_path,
+			  strerror(errno));
+		goto cleanup;
+	}
 
 	LOG_INFO("%s saved to: %s", url, dest_path);
-	return 0;
+	rc = 0;
+
+cleanup:
+	if (rc != 0 && tmp_path) {
+		unlink(tmp_path);
+	}
+	free(tmp_path);
+	curl_easy_cleanup(curl);
+	free(buf.data);
+	return rc;
 }
 
 /**
@@ -341,8 +389,6 @@ static int ota_ctx_init(ota_ctx_t *ctx, const struct ota_config *cfg) {
 		iRet = -1;
 	}
 
-	// Clean inbox
-
 	return iRet;
 }
 
@@ -387,6 +433,60 @@ static void ota_ctx_free(ota_ctx_t *ctx) {
 		free(ctx->payload_path);
 		ctx->payload_path = NULL;
 	}
+}
+
+static void ota_inbox_cleanup(ota_ctx_t *ctx) {
+	const char *paths[] = {
+	    ctx->inbox_manifest_path,
+	    ctx->inbox_sig_path,
+	    ctx->inbox_cert_path,
+	};
+
+	for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+		const char *path = paths[i];
+		if (!path) {
+			continue;
+		}
+		if (unlink(path) != 0 && errno != ENOENT) {
+			LOG_WARN("Failed to remove inbox file %s: %s", path,
+				 strerror(errno));
+		}
+	}
+
+	DIR *dir = opendir(ctx->config.inbox_manifest_dir);
+	if (!dir) {
+		if (errno != ENOENT) {
+			LOG_WARN("Failed to open inbox dir %s: %s",
+				 ctx->config.inbox_manifest_dir,
+				 strerror(errno));
+		}
+		return;
+	}
+
+	struct dirent *entry = NULL;
+	while ((entry = readdir(dir)) != NULL) {
+		size_t name_len = strlen(entry->d_name);
+		if (name_len < 4) {
+			continue;
+		}
+		if (strcmp(entry->d_name + name_len - 4, ".tmp") != 0) {
+			continue;
+		}
+
+		char *tmp_path = build_path(ctx->config.inbox_manifest_dir,
+					    entry->d_name);
+		if (!tmp_path) {
+			LOG_WARN("Failed to build inbox tmp path for %s",
+				 entry->d_name);
+			continue;
+		}
+		if (unlink(tmp_path) != 0 && errno != ENOENT) {
+			LOG_WARN("Failed to remove inbox tmp %s: %s", tmp_path,
+				 strerror(errno));
+		}
+		free(tmp_path);
+	}
+	closedir(dir);
 }
 
 /**
@@ -456,24 +556,24 @@ static int validate_new_manifest(ota_ctx_t *ctx) {
  * @brief Compare new and current manifests for changes.
  *
  * @param ctx OTA context.
- * @return 0 if same, 1 if update required, -1 on error.
+ * @return FILES_EQ if same, FILES_NEQ if update required, FILES_ERR on error.
  */
-static int compare_manifests(ota_ctx_t *ctx) {
+static files_equal_result_t compare_manifests(ota_ctx_t *ctx) {
 
 	if (!file_exists(ctx->current_manifest_path)) {
 		LOG_WARN("No current manifest found: Update required");
-		return 1; // Update required
+		return FILES_NEQ;
 	}
 	if (!file_exists(ctx->inbox_manifest_path)) {
 		LOG_ERROR("No inbox manifest to compare: Aborting");
-		return -1; // Could not compare
+		return FILES_ERR;
 	}
 
-	int ret = files_equal(ctx->current_manifest_path,
-			      ctx->inbox_manifest_path);
-	if (ret == 0) {
+	files_equal_result_t ret = files_equal(ctx->current_manifest_path,
+					       ctx->inbox_manifest_path);
+	if (ret == FILES_EQ) {
 		LOG_INFO("Manifest matches: System up to date");
-	} else if (ret == 1) {
+	} else if (ret == FILES_NEQ) {
 		LOG_INFO("Manifest mismatch: Update required");
 	} else {
 		LOG_ERROR("Error comparing manifests");
@@ -520,7 +620,8 @@ static int make_new_manifest_current(ota_ctx_t *ctx) {
 static int fetch_release(ota_ctx_t *ctx) {
 	int ret;
 
-	ctx->release = manifest_select_release(ctx->inbox_manifest, ctx->config.device_id);
+	ctx->release = manifest_select_release(ctx->inbox_manifest,
+					       ctx->config.device_id);
 
 	if (ctx->release == NULL) {
 		LOG_ERROR("Release not found");
@@ -528,15 +629,18 @@ static int fetch_release(ota_ctx_t *ctx) {
 	}
 
 	// Assemble path where payload will be downloaded
-	// Note: ctx->payload_path is freed in ota_ctx_free. Do not call
-	// fetch_payload() multiple times per ctx lifecycle.
+	// Note: ctx->payload_path is freed in ota_ctx_free.
+	if (ctx->payload_path != NULL) {
+		free(ctx->payload_path);
+		ctx->payload_path = NULL;
+	}
 	ctx->payload_path = build_path(ctx->config.inbox_manifest_dir,
 				       ctx->release->files[0].filename);
 
 	char *payload_url = NULL;
 	payload_url = build_path(ctx->config.server_url,
 				 ctx->release->files[0].path);
-	
+
 	if (payload_url == NULL) {
 		LOG_ERROR("Failed to assemble release payload URL");
 		return -1;
@@ -619,8 +723,8 @@ static int apply_release(ota_ctx_t *ctx) {
 		LOG_INFO("Installing RAUC bundle with no auto-reboot");
 
 		const char *bundle_path = ctx->payload_path;
-		char *const argv[] = {"rauc", "install",
-				      (char *)bundle_path, NULL};
+		char *const argv[] = {"rauc", "install", (char *)bundle_path,
+				      NULL};
 
 		pid_t pid = fork();
 		if (pid == 0) {
@@ -631,8 +735,28 @@ static int apply_release(ota_ctx_t *ctx) {
 		} else if (pid > 0) {
 			// Parent process
 			int status;
-			waitpid(pid, &status, 0);
-			LOG_INFO("RAUC child proc ret=%d", status);
+			if (waitpid(pid, &status, 0) < 0) {
+				LOG_ERROR("waitpid failed: %s",
+					  strerror(errno));
+				return -1;
+			}
+			if (WIFEXITED(status)) {
+				int exit_status = WEXITSTATUS(status);
+				if (exit_status != 0) {
+					LOG_ERROR("RAUC install failed with "
+						  "exit status %d",
+						  exit_status);
+					return -1;
+				}
+			} else if (WIFSIGNALED(status)) {
+				LOG_ERROR(
+				    "RAUC install terminated by signal %d",
+				    WTERMSIG(status));
+				return -1;
+			} else {
+				LOG_ERROR("RAUC install ended unexpectedly");
+				return -1;
+			}
 		} else {
 			// Fork failed
 			perror("fork failed");
@@ -663,11 +787,24 @@ int ota_fetch_run(bool daemon_mode, const struct ota_config *cfg) {
 	int attempt = 0;
 	int rc = 0;
 	ota_ctx_t ctx;
+	int fetch_interval_sec = FETCH_INTERVAL_SEC;
+	struct sigaction sa;
+
+	if (cfg->update_interval_sec > 0)
+		fetch_interval_sec = cfg->update_interval_sec;
+
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = handle_termination_signal;
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGTERM, &sa, NULL);
+	sigaction(SIGINT, &sa, NULL);
 
 	while (1) {
 		rc = ota_ctx_init(&ctx, cfg);
 		if (rc != 0)
 			goto attempt_end;
+
+		ota_inbox_cleanup(&ctx);
 
 		rc = fetch_new_manifest(&ctx);
 		if (rc != 0)
@@ -677,16 +814,25 @@ int ota_fetch_run(bool daemon_mode, const struct ota_config *cfg) {
 		if (rc != 0)
 			goto attempt_end;
 
-		rc = compare_manifests(&ctx);
-		if ((rc == 0) && (!daemon_mode)) {
-			// System up to data + one-shot, return
-			ota_ctx_free(&ctx);
-			return rc;
+		files_equal_result_t cmp_rc = compare_manifests(&ctx);
+		if (cmp_rc == FILES_EQ) {
+			if (!daemon_mode) {
+				// System up to date + one-shot, return
+				ota_ctx_free(&ctx);
+				return 0;
+			}
+			rc = 0;
+			goto attempt_end;
+		}
+		if (cmp_rc == FILES_ERR) {
+			rc = -1;
+			goto attempt_end;
 		}
 
 		ctx.inbox_manifest = manifest_load(ctx.inbox_manifest_path);
 		if (ctx.inbox_manifest == NULL) {
 			LOG_ERROR("Failed to load new manifest");
+			rc = -1;
 			goto attempt_end;
 		}
 
@@ -700,18 +846,19 @@ int ota_fetch_run(bool daemon_mode, const struct ota_config *cfg) {
 
 		rc = apply_release(&ctx);
 		if ((rc == 0) && (!daemon_mode)) {
-			// System up to data + one-shot, return
+			// Update applied + one-shot, return
 			ota_ctx_free(&ctx);
 			return rc;
 		}
 
 	attempt_end:
-		attempt++;
+		if (!daemon_mode)
+			attempt++;
 		ota_ctx_free(&ctx);
 
 		if (daemon_mode) {
 			// daemon mode
-			sleep(FETCH_INTERVAL_SEC);
+			sleep(fetch_interval_sec);
 		} else {
 			// one-shot mode
 			if (attempt < cfg->retry_attempts) {
@@ -721,7 +868,8 @@ int ota_fetch_run(bool daemon_mode, const struct ota_config *cfg) {
 			}
 		}
 
-		// TODO SIGTERM/SIGINT
+		if (g_terminate)
+			return 0;
 	};
 
 	return 0;

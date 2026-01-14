@@ -36,6 +36,8 @@ struct ota_config {
 	int transfer_timeout;
 	/**< Number of download retry attempts on failure */
 	int retry_attempts;
+	/**< Daemon update interval, in seconds (0 uses default) */
+	int update_interval_sec;
 	/**< Directory to store inbox (pending) manifests and payloads */
 	char *inbox_manifest_dir;
 	/**< Directory for current/active manifest and state */
