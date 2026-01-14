@@ -27,6 +27,7 @@ Makefile
 *.swo
 *.bak
 *~
+.vscode/*
 
 #Format Link
 .clang.format
@@ -37,4 +38,3 @@ Thumbs.db
 
 fix_large_push.sh
 *.raucb
-
