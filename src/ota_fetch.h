@@ -7,10 +7,8 @@
  *   - Secure HTTPS/mTLS downloads via libcurl
  *   - Manifest signature verification (OpenSSL)
  *   - Payload integrity validation (SHA-256)
- *   - Integration with RAUC and other update frameworks
- *   - One-shot and daemon (periodic) modes
- *
- * Designed for embedded edge systems and modularity.
+ *   - RAUC bundle install integration
+ *   - One-shot and periodic (daemon_mode) operation
  *
  * @author Dustin Hoskins
  * @date 2025
@@ -23,10 +21,16 @@
 #include <stdbool.h>
 
 /**
+ * @defgroup ota_fetch OTA Fetch Loop
+ * @brief High-level OTA fetch and apply operation.
+ * @{
+ */
+
+/**
  * @brief Run OTA fetch and update loop (main entry point).
  *
  * Checks for new updates, verifies, downloads, validates, and applies them.
- * Supports one-shot and daemon mode.
+ * If @p daemon_mode is true, runs as a periodic loop (no backgrounding).
  *
  * @param daemon_mode If true, run periodically; else, exit after one update
  * check.
@@ -34,5 +38,7 @@
  * @return 0 on success, non-zero on failure.
  */
 int ota_fetch_run(bool daemon_mode, const struct ota_config *cfg);
+
+/** @} */
 
 #endif // OTA_FETCH_H

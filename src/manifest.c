@@ -1,3 +1,11 @@
+/**
+ * @file manifest.c
+ * @brief Manifest JSON parsing and selection logic.
+ *
+ * Parses OTA manifest JSON documents into in-memory structures and provides
+ * selection helpers for device-specific releases.
+ */
+
 #include "manifest.h"
 
 #include <cjson/cJSON.h>

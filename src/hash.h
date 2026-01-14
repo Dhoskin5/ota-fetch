@@ -22,6 +22,12 @@
 extern "C" {
 #endif
 
+/**
+ * @defgroup hash Hashing Helpers
+ * @brief SHA-256 helpers for file integrity checks.
+ * @{
+ */
+
 /** Length of a SHA-256 digest in bytes. */
 #define SHA256_DIGEST_LEN 32
 
@@ -82,6 +88,8 @@ int hex_encode(char *out, size_t out_sz, const uint8_t *in, size_t len);
  * @return Pointer to an internal NUL-terminated string.
  */
 const char *sha256_hex(const uint8_t digest[SHA256_DIGEST_LEN]);
+
+/** @} */
 
 #ifdef __cplusplus
 }

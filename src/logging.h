@@ -18,6 +18,12 @@
 #include <string.h>
 
 /**
+ * @defgroup logging Logging
+ * @brief Minimal logging macros with compile-time log levels.
+ * @{
+ */
+
+/**
  * @def LOG_LEVEL_NONE
  * @brief Logging level: disables all logging.
  */
@@ -152,5 +158,7 @@ static inline const char *basename_c(const char *path) {
  * @param ... Additional arguments.
  */
 #define LOG_DEBUG(fmt, ...) LOG(LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__)
+
+/** @} */
 
 #endif // LOGGING_H

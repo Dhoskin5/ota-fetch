@@ -27,6 +27,12 @@ extern "C" {
 #define VERIFY_ERRBUF_LEN 256
 
 /**
+ * @defgroup verify Signature Verification
+ * @brief Manifest signature verification using OpenSSL.
+ * @{
+ */
+
+/**
  * @brief Verification result codes for signature and certificate validation.
  */
 typedef enum {
@@ -58,7 +64,7 @@ typedef enum {
  * @param sig_path    Path to the detached signature file (e.g.
  * manifest.json.sig).
  * @param cert_path   Path to PEM-encoded signer certificate (e.g.
- * manifest.crt).
+ * signer.crt).
  * @param ca_path     Path to trusted root CA bundle file or directory (PEM).
  * @param errbuf      Buffer for human-readable error message (may be NULL). If
  *                    provided with non-zero length, it is cleared on entry and
@@ -75,6 +81,8 @@ verify_result_t verify_signature_with_cert(const char *data_path,
 					   const char *cert_path,
 					   const char *ca_path, char *errbuf,
 					   size_t errbuf_len);
+
+/** @} */
 
 #ifdef __cplusplus
 }

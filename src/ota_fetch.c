@@ -7,10 +7,10 @@
  *   - Secure HTTPS/mTLS downloads via libcurl
  *   - Manifest signature verification (OpenSSL)
  *   - Payload integrity validation (SHA-256)
- *   - Integration with RAUC and other update frameworks
- *   - One-shot and daemon (periodic) modes
+ *   - RAUC bundle install integration
+ *   - One-shot and periodic (daemon_mode) operation
  *
- * Designed for embedded edge systems and modularity.
+ * The "daemon" mode is a polling loop and does not daemonize the process.
  *
  * @author Dustin Hoskins
  * @date 2025
@@ -61,7 +61,7 @@ typedef struct ota_ctx {
 	char *inbox_sig_path;
 	char *inbox_cert_path;
 	char *payload_path;
-	manifest_release_t *release;
+	const manifest_release_t *release;
 } ota_ctx_t;
 
 static volatile sig_atomic_t g_terminate = 0;
@@ -140,7 +140,7 @@ static char *build_path(const char *dir, const char *file) {
  * @path: Directory path to create.
  * @mode: Permissions to use for any newly created directories.
  *
- * Returns 0 on success, or 1 on error (sets errno).
+ * Returns 0 on success, or -1 on error (sets errno).
  *
  * Notes:
  *   - This function handles absolute and relative paths.
@@ -201,21 +201,27 @@ static files_equal_result_t files_equal(const char *path1, const char *path2) {
 	int irethash1;
 	int irethash2;
 
-	if ((path1 == NULL) || (path1 == NULL)) {
+	if ((path1 == NULL) || (path2 == NULL)) {
 		return FILES_ERR;
 	}
 
 	irethash1 = sha256sum_file(path1, hash1);
 	irethash2 = sha256sum_file(path2, hash2);
 
+	if ((irethash1 != 0) || (irethash2 != 0)) {
+		if (irethash1 != 0) {
+			LOG_ERROR("Failed to hash %s: %d", path1, irethash1);
+		}
+		if (irethash2 != 0) {
+			LOG_ERROR("Failed to hash %s: %d", path2, irethash2);
+		}
+		return FILES_ERR;
+	}
+
 	LOG_INFO("file1 =%s, hash1 =%s, ret =%d", path1, sha256_hex(hash1),
 		 irethash1);
 	LOG_INFO("file2 =%s, hash2 =%s, ret =%d", path2, sha256_hex(hash2),
 		 irethash2);
-
-	if ((irethash1 != 0) || (irethash2 != 0)) {
-		return FILES_ERR;
-	}
 
 	return (memcmp(hash1, hash2, 32) == 0) ? FILES_EQ : FILES_NEQ;
 }
@@ -622,6 +628,7 @@ static int make_new_manifest_current(ota_ctx_t *ctx) {
  */
 static int fetch_release(ota_ctx_t *ctx) {
 	int ret;
+	const manifest_file_t *file = NULL;
 
 	ctx->release = manifest_select_release(ctx->inbox_manifest,
 					       ctx->config.device_id);
@@ -631,18 +638,31 @@ static int fetch_release(ota_ctx_t *ctx) {
 		return -1;
 	}
 
+	if (ctx->release->files_count == 0 || !ctx->release->files) {
+		LOG_ERROR("Release contains no files");
+		return -1;
+	}
+
+	file = &ctx->release->files[0];
+	if (!file->filename || !file->path || !file->sha256 ||
+	    !file->file_type) {
+		LOG_ERROR(
+		    "Release file entry missing required fields "
+		    "(file_type, filename, path, sha256)");
+		return -1;
+	}
+
 	// Assemble path where payload will be downloaded
 	// Note: ctx->payload_path is freed in ota_ctx_free.
 	if (ctx->payload_path != NULL) {
 		free(ctx->payload_path);
 		ctx->payload_path = NULL;
 	}
-	ctx->payload_path = build_path(ctx->config.inbox_manifest_dir,
-				       ctx->release->files[0].filename);
+	ctx->payload_path =
+	    build_path(ctx->config.inbox_manifest_dir, file->filename);
 
 	char *payload_url = NULL;
-	payload_url = build_path(ctx->config.server_url,
-				 ctx->release->files[0].path);
+	payload_url = build_path(ctx->config.server_url, file->path);
 
 	if (payload_url == NULL) {
 		LOG_ERROR("Failed to assemble release payload URL");
@@ -668,6 +688,12 @@ static int fetch_release(ota_ctx_t *ctx) {
  * @return 0 if valid, -1 on mismatch or error.
  */
 static int validate_release(ota_ctx_t *ctx) {
+	if (!ctx->release || !ctx->release->files ||
+	    ctx->release->files_count == 0 ||
+	    !ctx->release->files[0].sha256) {
+		LOG_ERROR("Release file hash missing from manifest");
+		return -1;
+	}
 
 	FILE *fp = fopen(ctx->payload_path, "rb");
 	if (!fp) {
@@ -715,6 +741,13 @@ static int validate_release(ota_ctx_t *ctx) {
  */
 static int apply_release(ota_ctx_t *ctx) {
 	LOG_INFO("Applying release payload");
+
+	if (!ctx->release || !ctx->release->files ||
+	    ctx->release->files_count == 0 ||
+	    !ctx->release->files[0].file_type) {
+		LOG_ERROR("Release file_type missing from manifest");
+		return -1;
+	}
 
 	const char *file_type = ctx->release->files[0].file_type;
 

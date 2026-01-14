@@ -14,6 +14,11 @@ https://github.com/benhoyt/inih
 #ifndef INI_H
 #define INI_H
 
+/**
+ * @file ini.h
+ * @brief Embedded copy of the inih INI parser public API.
+ */
+
 /* Make this header file easier to include in C++ code */
 #ifdef __cplusplus
 extern "C" {

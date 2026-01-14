@@ -11,6 +11,11 @@ https://github.com/benhoyt/inih
 
 */
 
+/**
+ * @file ini.c
+ * @brief Embedded copy of the inih INI parser implementation.
+ */
+
 #if defined(_MSC_VER) && !defined(_CRT_SECURE_NO_WARNINGS)
 #define _CRT_SECURE_NO_WARNINGS
 #endif

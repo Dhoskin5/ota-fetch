@@ -1,3 +1,12 @@
+/**
+ * @file verify_libcrypto.c
+ * @brief OpenSSL-backed manifest signature verification.
+ *
+ * Verifies detached signatures over manifest.json using a signer certificate
+ * and validates the signer certificate against a trusted root CA bundle or
+ * hashed CA directory.
+ */
+
 #include "verify_libcrypto.h"
 
 #include <openssl/crypto.h>

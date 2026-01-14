@@ -25,6 +25,12 @@
 extern "C" {
 #endif
 
+/**
+ * @defgroup manifest Manifest Parsing
+ * @brief Parse and select OTA manifest releases and files.
+ * @{
+ */
+
 typedef struct {
 	char *file_type; /**< e.g. "rauc_bundle" */
 	char *filename;	 /**< filename, e.g. "bundle.raucb" */
@@ -106,6 +112,8 @@ const manifest_release_t *manifest_select_release(const manifest_t *m,
  */
 const manifest_file_t *manifest_release_select_file(const manifest_release_t *r,
 						    const char *file_type);
+
+/** @} */
 
 #ifdef __cplusplus
 }

@@ -1,3 +1,12 @@
+/**
+ * @file config.c
+ * @brief INI-based configuration parsing and validation.
+ *
+ * Loads OTA Fetcher configuration from an INI file with [network] and
+ * [system] sections, performs basic validation, and provides helpers for
+ * printing and cleanup.
+ */
+
 #include "config.h"
 #include "ini.h"
 #include <stdio.h>
@@ -5,6 +14,14 @@
 #include <string.h>
 
 #define DUP(s) ((s) ? strdup(s) : NULL)
+
+static int validate_required_string(const char *value, const char *name) {
+	if (!value || value[0] == '\0') {
+		fprintf(stderr, "Config missing required value: %s\n", name);
+		return -1;
+	}
+	return 0;
+}
 
 /* ------------------------------------------------------------------------ */
 int config_handler(void *user, const char *section, const char *name,
@@ -47,7 +64,30 @@ int config_handler(void *user, const char *section, const char *name,
 /* ------------------------------------------------------------------------ */
 int config_load(const char *filename, struct ota_config *config) {
 	memset(config, 0, sizeof(*config));
-	return ini_parse(filename, config_handler, config);
+	int rc = ini_parse(filename, config_handler, config);
+	if (rc != 0) {
+		config_free(config);
+		return rc;
+	}
+
+	if (validate_required_string(config->server_url,
+				     "network.server_url") != 0 ||
+	    validate_required_string(config->ca_cert, "network.ca_cert") != 0 ||
+	    validate_required_string(config->client_cert,
+				     "network.client_cert") != 0 ||
+	    validate_required_string(config->client_key,
+				     "network.client_key") != 0 ||
+	    validate_required_string(config->inbox_manifest_dir,
+				     "system.inbox_manifest_dir") != 0 ||
+	    validate_required_string(config->current_manifest_dir,
+				     "system.current_manifest_dir") != 0 ||
+	    validate_required_string(config->root_ca_path,
+				     "system.root_ca_path") != 0) {
+		config_free(config);
+		return -1;
+	}
+
+	return 0;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -66,17 +106,27 @@ void config_free(struct ota_config *config) {
 /* ------------------------------------------------------------------------ */
 void config_print(const struct ota_config *config) {
 	printf("Config:\n");
-	printf("server_url          = %s\n", config->server_url);
-	printf("ca_cert             = %s\n", config->ca_cert);
-	printf("client_cert         = %s\n", config->client_cert);
-	printf("client_key          = %s\n", config->client_key);
+	printf("server_url          = %s\n",
+	       config->server_url ? config->server_url : "(null)");
+	printf("ca_cert             = %s\n",
+	       config->ca_cert ? config->ca_cert : "(null)");
+	printf("client_cert         = %s\n",
+	       config->client_cert ? config->client_cert : "(null)");
+	printf("client_key          = %s\n",
+	       config->client_key ? config->client_key : "(null)");
 	printf("connect_timeout     = %d\n", config->connect_timeout);
 	printf("transfer_timeout    = %d\n", config->transfer_timeout);
 	printf("retry_attempts      = %d\n", config->retry_attempts);
 	printf("update_interval_sec = %d\n", config->update_interval_sec);
-	printf("inbox_manifest_dir  = %s\n", config->inbox_manifest_dir);
-	printf("current_manfiest_dir= %s\n", config->current_manifest_dir);
-	printf("root_ca_path	    = %s\n", config->root_ca_path);
-	printf("log_file            = %s\n", config->log_file);
-	printf("device_id           = %s\n", config->device_id);
+	printf("inbox_manifest_dir  = %s\n",
+	       config->inbox_manifest_dir ? config->inbox_manifest_dir : "(null)");
+	printf("current_manifest_dir= %s\n",
+	       config->current_manifest_dir ? config->current_manifest_dir
+					     : "(null)");
+	printf("root_ca_path        = %s\n",
+	       config->root_ca_path ? config->root_ca_path : "(null)");
+	printf("log_file            = %s\n",
+	       config->log_file ? config->log_file : "(null)");
+	printf("device_id           = %s\n",
+	       config->device_id ? config->device_id : "(null)");
 }

@@ -3,8 +3,8 @@
  * @brief OTA Fetcher configuration structure and helpers.
  *
  * Defines the OTA config structure and functions for loading, freeing,
- * and printing OTA update client configuration. Configuration includes
- * network credentials, system paths, and update policies.
+ * and printing OTA update client configuration. Configuration is read
+ * from an INI file with [network] and [system] sections.
  *
  * @author Dustin Hoskins
  * @date 2025
@@ -14,6 +14,15 @@
 #define OTA_FETCH_CONFIG_H
 
 #include <stdbool.h>
+
+/**
+ * @defgroup config Configuration
+ * @brief INI configuration for OTA Fetcher.
+ *
+ * The default config path is `/etc/ota_fetch/ota_fetch.conf`. Keys are read
+ * from [network] and [system] sections.
+ * @{
+ */
 
 /**
  * @brief OTA Fetcher configuration settings.
@@ -26,9 +35,9 @@ struct ota_config {
 	char *server_url;
 	/**< Path to CA certificate for TLS validation */
 	char *ca_cert;
-	/**< Path to client certificate for mTLS (or NULL) */
+	/**< Path to client certificate for mTLS */
 	char *client_cert;
-	/**< Path to client private key for mTLS (or NULL) */
+	/**< Path to client private key for mTLS */
 	char *client_key;
 	/**< HTTP(S) connect timeout, in seconds */
 	int connect_timeout;
@@ -53,11 +62,11 @@ struct ota_config {
 /**
  * @brief Load OTA config from file.
  *
- * Loads OTA configuration from a file (default: /etc/ota-fetch/ota-fetch.conf).
+ * Loads OTA configuration from a file (default: /etc/ota_fetch/ota_fetch.conf).
  *
  * @param filename Path to config file.
  * @param config   Pointer to ota_config struct to populate.
- * @return 0 on success, nonzero on error.
+ * @return 0 on success, nonzero on error (parse errors return a line number).
  *
  * @note Dynamically allocates strings in @p config; must call config_free().
  */
@@ -73,10 +82,12 @@ void config_free(struct ota_config *config);
 /**
  * @brief Print OTA config for debugging/logging.
  *
- * Outputs all fields and values to stderr for human inspection.
+ * Outputs all fields and values to stdout for human inspection.
  *
  * @param config Pointer to ota_config struct to print.
  */
 void config_print(const struct ota_config *config);
+
+/** @} */
 
 #endif // OTA_FETCH_CONFIG_H
