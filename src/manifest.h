@@ -1,6 +1,6 @@
 /**
  * @file manifest.h
- * @brief OTA update manifest API (v2).
+ * @brief OTA update manifest API.
  *
  * Parses and represents an OTA update manifest that may contain multiple
  * per-device (device_id) releases. Each release contains one or more files.
@@ -52,7 +52,7 @@ typedef struct {
 /**
  * @brief Parse a manifest JSON file from disk.
  *
- * Loads and parses a v2 manifest from the specified file.
+ * Loads and parses a manifest from the specified file.
  *
  * @param path Path to manifest JSON file.
  * @return Pointer to allocated manifest_t on success, NULL on error.

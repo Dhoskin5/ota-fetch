@@ -201,18 +201,21 @@ static files_equal_result_t files_equal(const char *path1, const char *path2) {
 	int irethash1;
 	int irethash2;
 
+	if ((path1 == NULL) || (path1 == NULL)) {
+		return FILES_ERR;
+	}
+
 	irethash1 = sha256sum_file(path1, hash1);
 	irethash2 = sha256sum_file(path2, hash2);
 
-	LOG_INFO("ihash1ret =%d", irethash1);
-	LOG_INFO("ihash2ret =%d", irethash2);
+	LOG_INFO("file1 =%s, hash1 =%s, ret =%d", path1, sha256_hex(hash1),
+		 irethash1);
+	LOG_INFO("file2 =%s, hash2 =%s, ret =%d", path2, sha256_hex(hash2),
+		 irethash2);
 
 	if ((irethash1 != 0) || (irethash2 != 0)) {
 		return FILES_ERR;
 	}
-
-	print_sha256sum("Hash1", hash1, 32);
-	print_sha256sum("Hash2", hash2, 32);
 
 	return (memcmp(hash1, hash2, 32) == 0) ? FILES_EQ : FILES_NEQ;
 }
@@ -720,7 +723,7 @@ static int apply_release(ota_ctx_t *ctx) {
 		make_new_manifest_current(ctx);
 
 	} else if (strcmp(file_type, "rauc_bundle") == 0) {
-		LOG_INFO("Installing RAUC bundle with no auto-reboot");
+		LOG_INFO("Installing RAUC bundle");
 
 		const char *bundle_path = ctx->payload_path;
 		char *const argv[] = {"rauc", "install", (char *)bundle_path,

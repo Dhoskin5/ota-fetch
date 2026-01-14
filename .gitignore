@@ -17,7 +17,7 @@ Makefile
 !/test/client/.gitkeep
 !/test/var/lib/ota_fetch/inbox/.gitkeep
 !/test/var/lib/ota_fetch/current/.gitkeep
-/test/var/*.log*
+/test/var/log/*.log
 
 #Docs
 /docs/*
@@ -37,3 +37,4 @@ Thumbs.db
 
 fix_large_push.sh
 *.raucb
+

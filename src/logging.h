@@ -1,6 +1,6 @@
 /**
  * @file logging.h
- * @brief Simple embedded logging macros and helpers for OTA projects.
+ * @brief Simple embedded logging macros and helpers.
  *
  * Provides compile-time configurable logging levels and convenience macros for
  * standardized error, warning, info, and debug output. Designed to be minimal,

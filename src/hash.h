@@ -1,9 +1,12 @@
 /**
  * @file hash.h
- * @brief SHA-256 hashing utilities for OTA update integrity.
+ * @brief SHA-256 hashing and hex formatting helpers.
  *
- * Provides functions for hashing files and printing SHA-256 digests.
- * Intended for use in manifest and payload validation in OTA update systems.
+ * Provides:
+ *  - File SHA-256 hashing for integrity verification
+ *  - Hex formatting helpers suitable for logging/diagnostics
+ *
+ * No I/O is performed by formatting helpers.
  *
  * @author Dustin Hoskins
  * @date 2025
@@ -19,36 +22,69 @@
 extern "C" {
 #endif
 
-/**
- * @brief Length of a SHA-256 digest, in bytes.
- */
+/** Length of a SHA-256 digest in bytes. */
 #define SHA256_DIGEST_LEN 32
 
+/** Return codes for sha256sum_file(). */
+typedef enum {
+	SHA256SUM_OK = 0,     /**< Success */
+	SHA256SUM_EOPEN = -1, /**< Failed to open file (errno set by fopen()) */
+	SHA256SUM_EREAD = -2, /**< I/O error reading file (ferror() true) */
+	SHA256SUM_EINVAL = -3,	/**< Invalid argument */
+	SHA256SUM_EINIT = -4,	/**< SHA256_Init() failed */
+	SHA256SUM_EUPDATE = -5, /**< SHA256_Update() failed */
+	SHA256SUM_EFINAL = -6,	/**< SHA256_Final() failed */
+} sha256sum_rc_t;
+
 /**
- * @brief Calculate the SHA-256 hash of a file.
+ * @brief Compute the SHA-256 digest of a file.
  *
- * Opens and reads the file at @p path, computes its SHA-256 hash, and
- * writes the 32-byte result to @p digest_out.
+ * Reads the file at @p path and computes a SHA-256 digest over its contents.
+ * On success, writes exactly ::SHA256_DIGEST_LEN bytes to @p digest_out.
  *
- * @param path       Path to the file to hash.
- * @param digest_out Output buffer for SHA-256 digest (must be at least 32 bytes).
- * @return 0 on success, nonzero on error (see implementation for details).
+ * @param path       Path to the file to hash (must not be NULL).
+ * @param digest_out Output buffer (must not be NULL; size >=
+ * ::SHA256_DIGEST_LEN).
+ *
+ * @return One of ::sha256sum_rc_t values.
  */
 int sha256sum_file(const char *path, uint8_t *digest_out);
 
 /**
- * @brief Print a SHA-256 digest as a hex string with a label.
+ * @brief Encode a digest to lowercase hex into a caller-provided buffer.
  *
- * Outputs the hash in lowercase hexadecimal to stderr, optionally prefixed by @p label.
+ * Writes 2*len hex characters plus a terminating NUL to @p out.
  *
- * @param label Label to print before the hash (for context in logs).
- * @param hash  Pointer to SHA-256 hash bytes.
- * @param len   Length of the hash (should be 32 for SHA-256).
+ * @param out     Output buffer for hex string (must not be NULL).
+ * @param out_sz  Size of @p out in bytes. Must be >= (len*2 + 1).
+ * @param in      Input bytes to encode (must not be NULL).
+ * @param len     Number of bytes in @p in.
+ *
+ * @retval 0   Success.
+ * @retval -1  Invalid argument.
+ * @retval -2  Output buffer too small.
  */
-void print_sha256sum(const char *label, const uint8_t *hash, size_t len);
+int hex_encode(char *out, size_t out_sz, const uint8_t *in, size_t len);
+
+/**
+ * @brief Format a SHA-256 digest as lowercase hex for logging.
+ *
+ * Convenience wrapper that returns a pointer to an internal buffer containing
+ * 64 lowercase hex characters plus a terminating NUL.
+ *
+ * @note The returned pointer refers to an internal buffer. Do not free it.
+ * @note Thread-safety depends on platform support for thread-local storage.
+ *       Prefer hex_encode() if you need strict portability and reentrancy.
+ *
+ * @param digest Pointer to a ::SHA256_DIGEST_LEN-byte digest. If NULL, a
+ *               placeholder string is returned.
+ *
+ * @return Pointer to an internal NUL-terminated string.
+ */
+const char *sha256_hex(const uint8_t digest[SHA256_DIGEST_LEN]);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // HASH_H
+#endif /* HASH_H */

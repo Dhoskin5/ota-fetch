@@ -8,6 +8,7 @@
 
 #define DUP(s) ((s) ? strdup(s) : NULL)
 
+/* ------------------------------------------------------------------------ */
 static char *dup_json_string(cJSON *obj, const char *key) {
 	cJSON *it = cJSON_GetObjectItemCaseSensitive(obj, key);
 	if (!it || !cJSON_IsString(it) || !it->valuestring)
@@ -15,6 +16,7 @@ static char *dup_json_string(cJSON *obj, const char *key) {
 	return strdup(it->valuestring);
 }
 
+/* ------------------------------------------------------------------------ */
 static uint64_t json_u64(cJSON *obj, const char *key, int *ok) {
 	cJSON *it = cJSON_GetObjectItemCaseSensitive(obj, key);
 	if (!it || !cJSON_IsNumber(it)) {
@@ -32,6 +34,7 @@ static uint64_t json_u64(cJSON *obj, const char *key, int *ok) {
 	return (uint64_t)v;
 }
 
+/* ------------------------------------------------------------------------ */
 static void free_file(manifest_file_t *f) {
 	if (!f)
 		return;
@@ -42,6 +45,7 @@ static void free_file(manifest_file_t *f) {
 	memset(f, 0, sizeof(*f));
 }
 
+/* ------------------------------------------------------------------------ */
 static void free_release(manifest_release_t *r) {
 	if (!r)
 		return;
