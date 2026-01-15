@@ -7,5 +7,5 @@ This project includes the following third-party components:
 External dependencies (not included in this repository):
 
 - libcurl
-- OpenSSL (libcrypto)
+- OpenSSL
 - cJSON
