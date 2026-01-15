@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 KERNEL FORGE LLC
 /**
  * @file hash.h
  * @brief SHA-256 hashing and hex formatting helpers.

@@ -1,7 +1,7 @@
 # ota-fetch
 
 [![CI](https://github.com/kernelforge-io/ota-fetch/actions/workflows/ci.yml/badge.svg)](https://github.com/kernelforge-io/ota-fetch/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 A lightweight C utility to fetch and verify OTA updates on embedded Linux.
 
@@ -197,6 +197,10 @@ Common failure modes and where they occur:
 ## Testing
 
 Integration tests use a local HTTPS server with mTLS.
+
+## License
+
+License: Apache-2.0. Third-party licenses are in `THIRD_PARTY_NOTICES.md` and any `third_party/*/LICENSE`.
 
 Dependencies:
 

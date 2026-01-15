@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025-2026 KERNEL FORGE LLC
 set -euo pipefail
 
 # --- Always run from test/ root for path consistency ---
