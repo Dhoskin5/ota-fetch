@@ -78,10 +78,11 @@ jobs:
           scancode \
             --license \
             --json-pp compliance/scancode.json \
-            --spdx-json compliance/scancode.spdx.json \
-            --exclude .git \
-            --exclude build \
-            --exclude docs/html \
+            --spdx-tv compliance/scancode.spdx.tv \
+            --ignore ".git/**" \
+            --ignore "build/**" \
+            --ignore "docs/html/**" \
+            --ignore "compliance/**" \
             .
 
       - name: Upload ScanCode reports
@@ -91,7 +92,7 @@ jobs:
           name: scancode-reports
           path: |
             compliance/scancode.json
-            compliance/scancode.spdx.json
+            compliance/scancode.spdx.tv
           if-no-files-found: warn
 
   deep_license_scan:
@@ -121,10 +122,11 @@ jobs:
             --info \
             --summary \
             --json-pp compliance/deep/scancode.json \
-            --spdx-json compliance/deep/scancode.spdx.json \
-            --exclude .git \
-            --exclude build \
-            --exclude docs/html \
+            --spdx-tv compliance/deep/scancode.spdx.tv \
+            --ignore ".git/**" \
+            --ignore "build/**" \
+            --ignore "docs/html/**" \
+            --ignore "compliance/**" \
             .
 
       - name: Upload deep ScanCode reports
@@ -134,7 +136,7 @@ jobs:
           name: scancode-reports-deep
           path: |
             compliance/deep/scancode.json
-            compliance/deep/scancode.spdx.json
+            compliance/deep/scancode.spdx.tv
           if-no-files-found: warn
 
   code_similarity_scan:
@@ -158,9 +160,8 @@ jobs:
           jscpd \
             --reporters json \
             --output compliance/jscpd \
-            --path src \
-            --path test \
-            --exitCode 0
+            --exitCode 0 \
+            src test
 
       - name: Upload jscpd report
         if: ${{ always() }}
