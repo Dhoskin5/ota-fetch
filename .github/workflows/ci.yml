@@ -2,9 +2,20 @@ name: ota-fetch CI
 
 on:
   push:
+    branches:
+      - main
+      - master
   pull_request:
   schedule:
     - cron: "0 3 * * 1"
+
+# Read-only token to reduce blast radius
+permissions: read-all
+
+# Avoid wasting minutes on superseded runs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-test:
@@ -18,7 +29,9 @@ jobs:
           - ubuntu-24.04
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Install build dependencies
         run: |
@@ -61,6 +74,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -80,6 +95,7 @@ jobs:
             --json-pp compliance/scancode.json \
             --spdx-tv compliance/scancode.spdx.tv \
             --ignore ".git/**" \
+            --ignore ".github/**" \
             --ignore "build/**" \
             --ignore "docs/html/**" \
             --ignore "compliance/**" \
@@ -101,6 +117,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -124,6 +142,7 @@ jobs:
             --json-pp compliance/deep/scancode.json \
             --spdx-tv compliance/deep/scancode.spdx.tv \
             --ignore ".git/**" \
+            --ignore ".github/**" \
             --ignore "build/**" \
             --ignore "docs/html/**" \
             --ignore "compliance/**" \
@@ -145,6 +164,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -152,7 +173,7 @@ jobs:
           node-version: "20"
 
       - name: Install jscpd
-        run: npm install -g jscpd@3.5.10
+        run: npm install -g jscpd@3.5.10 --no-audit --no-fund
 
       - name: Run jscpd
         run: |
